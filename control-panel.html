@@ -100,24 +100,26 @@ font-family:monospace;font-size:.75rem;height:120px;overflow-y:auto;color:var(--
     <button onclick="preset('recovery')">🔄 Recovery</button>
     <button onclick="preset('low_power')">🔋 Low Power</button>
   </div>
-  <h2 style="margin-top:12px">🔦 Flashlight Demo</h2>
-  <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Tap when you move the flashlight — values animate smoothly</p>
-  <div class="presets" style="margin-bottom:4px">
-    <button onclick="flashlight('on')" style="background:#e8a020;color:#000;font-size:.95rem;padding:10px 24px">☀️ LIGHT ON</button>
-    <button onclick="flashlight('off')" style="background:#1a1e2e;border:2px solid var(--accent);font-size:.95rem;padding:10px 24px">🌑 LIGHT OFF</button>
-  </div>
-  <div class="row" style="margin-top:8px">
-    <label>Transition speed (s)</label>
-    <input type="range" id="flashTransition" min="0.5" max="5" step="0.5" value="2">
-    <span class="val" id="flashTransVal">2.0</span>
+  <h2 style="margin-top:12px">🔦 Light Sensor</h2>
+  <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Drag to simulate light on the photoresistor — drives solar + orbit</p>
+  <div class="row">
+    <label>🌑 Light level ☀️</label>
+    <input type="range" id="lightSlider" min="0" max="100" step="1" value="0" style="accent-color:#e8a020">
+    <span class="val" id="lightVal" style="color:#e8a020">0%</span>
   </div>
 
-  <h2 style="margin-top:12px">🌡️ Heat Demo</h2>
-  <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Simulate pointing a heat gun / lighter — temperature climbs or cools</p>
-  <div class="presets" style="margin-bottom:4px">
-    <button onclick="heatDemo('on')" style="background:#cc3300;font-size:.95rem;padding:10px 24px">🔥 HEAT ON</button>
-    <button onclick="heatDemo('off')" style="background:#1a3a5c;font-size:.95rem;padding:10px 24px">❄️ COOL DOWN</button>
+  <h2 style="margin-top:12px">🌡️ Heat Sensor</h2>
+  <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Drag to simulate heat gun on the thermistor</p>
+  <div class="row">
+    <label>❄️ Temperature 🔥</label>
+    <input type="range" id="heatSlider" min="-20" max="80" step="1" value="24" style="accent-color:#cc3300">
+    <span class="val" id="heatVal" style="color:#cc3300">24°C</span>
   </div>
+
+  <!-- Orbit Visualisation -->
+  <h2 style="margin-top:12px">🛰️ Orbit View</h2>
+  <canvas id="orbitCanvas" width="320" height="240" style="width:100%;max-width:320px;border-radius:8px;background:#0a0e17;display:block;margin:0 auto"></canvas>
+  <p id="orbitLabel" style="text-align:center;color:var(--dim);font-size:.8rem;margin-top:6px">Phase: 0° · ECLIPSE</p>
 
   <h2 style="margin-top:12px">💥 Fault Scenarios</h2>
   <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Animate a fault over multiple packets</p>
@@ -557,89 +559,145 @@ const PRESETS = {
   }
 };
 
-/* ── Heat demo mode ── */
-let heatAnim = null;
-let heatTarget = null;
-function heatDemo(mode){
-  if(heatAnim) cancelAnimationFrame(heatAnim);
-  const duration = parseFloat(document.getElementById('flashTransition').value) * 1000;
-  const t0 = performance.now();
-  const startTemp = parseFloat(document.getElementById('temperature_c').value);
-  // Heat ON: climb to 65°C (warning→critical territory). Cool: drop to 24°C
-  heatTarget = mode==='on' ? 65 : 24;
-
-  function tick(now){
-    let progress = Math.min(1, (now - t0) / duration);
-    // Ease curve
-    progress = progress < 0.5 ? 2*progress*progress : 1 - Math.pow(-2*progress+2,2)/2;
-    const temp = startTemp + (heatTarget - startTemp) * progress;
-    setVal('temperature_c', temp.toFixed(1));
-    updatePowerDisplays();
-    if(progress < 1){
-      heatAnim = requestAnimationFrame(tick);
-    } else {
-      heatAnim = null;
-      log(mode==='on' ? '🔥 Heat applied — temperature at '+heatTarget+'°C' : '❄️ Cooled down — temperature at '+heatTarget+'°C');
-    }
-  }
-  heatAnim = requestAnimationFrame(tick);
-  log(mode==='on' ? '🌡️ Heating up...' : '🌡️ Cooling down...');
-}
-
-/* ── Flashlight transition speed ── */
-document.getElementById('flashTransition').addEventListener('input', function(){
-  document.getElementById('flashTransVal').textContent = parseFloat(this.value).toFixed(1);
+/* ── Light Sensor slider ── */
+const lightSlider = document.getElementById('lightSlider');
+const lightVal = document.getElementById('lightVal');
+const SUNLIT = {
+  solar_voltage_v:4.92, solar_current_ma:72, battery_voltage_v:3.90, battery_current_ma:22,
+  pem_voltage_v:3.32, pem_current_ma:46, load_voltage_v:3.32, load_current_ma:82,
+  lora_rssi_dbm:-76, packet_success_pct:99, orbit_phase_deg:90
+};
+const ECLIPSE = {
+  solar_voltage_v:0, solar_current_ma:0, battery_voltage_v:3.62, battery_current_ma:-45,
+  pem_voltage_v:3.26, pem_current_ma:40, load_voltage_v:3.26, load_current_ma:58,
+  lora_rssi_dbm:-90, packet_success_pct:97, orbit_phase_deg:240
+};
+lightSlider.addEventListener('input', function(){
+  const pct = parseInt(this.value) / 100;
+  lightVal.textContent = this.value + '%';
+  // Interpolate all mapped fields
+  Object.keys(SUNLIT).forEach(f => {
+    const v = ECLIPSE[f] + (SUNLIT[f] - ECLIPSE[f]) * pct;
+    setVal(f, f==='orbit_phase_deg' ? v.toFixed(0) : v.toFixed(2));
+  });
+  // Mode label
+  document.getElementById('operating_mode').value = pct > 0.3 ? 'NOMINAL' : 'ECLIPSE';
+  updatePowerDisplays();
+  drawOrbit();
 });
 
-/* ── Flashlight demo mode ── */
-let flashAnim = null;
-function flashlight(mode){
-  if(flashAnim) cancelAnimationFrame(flashAnim);
-  const target = mode==='on' ? {
-    solar_voltage_v:4.92, solar_current_ma:72, battery_voltage_v:3.90, battery_current_ma:22,
-    pem_voltage_v:3.32, pem_current_ma:46, load_voltage_v:3.32, load_current_ma:82,
-    temperature_c:31, lora_rssi_dbm:-76, packet_success_pct:99, orbit_phase_deg:90,
-    operating_mode:'SUNLIGHT'
-  } : {
-    solar_voltage_v:0, solar_current_ma:0, battery_voltage_v:3.62, battery_current_ma:-45,
-    pem_voltage_v:3.26, pem_current_ma:40, load_voltage_v:3.26, load_current_ma:58,
-    temperature_c:6, lora_rssi_dbm:-90, packet_success_pct:97, orbit_phase_deg:240,
-    operating_mode:'ECLIPSE'
-  };
-  // Read current slider values as start
-  const start = {};
-  const numFields = ['solar_voltage_v','solar_current_ma','battery_voltage_v','battery_current_ma',
-    'pem_voltage_v','pem_current_ma','load_voltage_v','load_current_ma',
-    'temperature_c','lora_rssi_dbm','packet_success_pct','orbit_phase_deg'];
-  numFields.forEach(f => { start[f] = parseFloat(document.getElementById(f).value); });
+/* ── Heat Sensor slider ── */
+const heatSlider = document.getElementById('heatSlider');
+const heatVal = document.getElementById('heatVal');
+heatSlider.addEventListener('input', function(){
+  const t = parseFloat(this.value);
+  heatVal.textContent = t + '°C';
+  setVal('temperature_c', t.toFixed(1));
+});
 
-  const duration = parseFloat(document.getElementById('flashTransition').value) * 1000;
-  const t0 = performance.now();
+/* ── Orbit canvas drawing ── */
+function drawOrbit(){
+  const canvas = document.getElementById('orbitCanvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2;
+  ctx.clearRect(0,0,W,H);
 
-  // Set operating mode immediately
-  document.getElementById('operating_mode').value = target.operating_mode;
+  const deg = parseFloat(document.getElementById('orbit_phase_deg').value) || 0;
+  const rad = deg * Math.PI / 180;
+  const orbitRx = 110, orbitRy = 50; // ellipse radii
+  const earthR = 28;
 
-  function tick(now){
-    let progress = Math.min(1, (now - t0) / duration);
-    // Ease in-out for smooth look
-    progress = progress < 0.5 ? 2*progress*progress : 1 - Math.pow(-2*progress+2,2)/2;
+  // Sun glow (right side)
+  const sunX = W - 30, sunY = H/2;
+  const sunGrad = ctx.createRadialGradient(sunX, sunY, 5, sunX, sunY, 45);
+  sunGrad.addColorStop(0, 'rgba(255,220,60,0.9)');
+  sunGrad.addColorStop(0.5, 'rgba(255,180,30,0.3)');
+  sunGrad.addColorStop(1, 'rgba(255,180,30,0)');
+  ctx.fillStyle = sunGrad;
+  ctx.fillRect(0,0,W,H);
 
-    numFields.forEach(f => {
-      const v = start[f] + (target[f] - start[f]) * progress;
-      setVal(f, f==='orbit_phase_deg' ? v.toFixed(0) : v.toFixed(2));
-    });
-    updatePowerDisplays();
+  // Sun
+  ctx.beginPath();
+  ctx.arc(sunX, sunY, 14, 0, Math.PI*2);
+  ctx.fillStyle = '#ffcc00';
+  ctx.fill();
 
-    if(progress < 1) {
-      flashAnim = requestAnimationFrame(tick);
-    } else {
-      flashAnim = null;
-      log(mode==='on' ? '☀️ Flashlight ON — sunlit transition complete' : '🌑 Flashlight OFF — eclipse transition complete');
-    }
-  }
-  flashAnim = requestAnimationFrame(tick);
-  log(mode==='on' ? '🔦 Transitioning to SUNLIT...' : '🔦 Transitioning to ECLIPSE...');
+  // Umbra cone (shadow behind Earth, away from sun)
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx - earthR*0.8, cy - earthR);
+  ctx.lineTo(20, cy - earthR*1.8);
+  ctx.lineTo(20, cy + earthR*1.8);
+  ctx.lineTo(cx - earthR*0.8, cy + earthR);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,0,30,0.35)';
+  ctx.fill();
+  ctx.restore();
+
+  // Orbit ellipse (dashed)
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, orbitRx, orbitRy, 0, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(100,160,255,0.3)';
+  ctx.setLineDash([4,4]);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Earth
+  const earthGrad = ctx.createRadialGradient(cx+5, cy-5, 2, cx, cy, earthR);
+  earthGrad.addColorStop(0, '#4488cc');
+  earthGrad.addColorStop(0.6, '#225588');
+  earthGrad.addColorStop(1, '#112244');
+  ctx.beginPath();
+  ctx.arc(cx, cy, earthR, 0, Math.PI*2);
+  ctx.fillStyle = earthGrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(100,180,255,0.4)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Satellite position on orbit
+  const satX = cx + orbitRx * Math.cos(rad);
+  const satY = cy + orbitRy * Math.sin(rad);
+
+  // Line from earth to sat
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(satX, satY);
+  ctx.strokeStyle = 'rgba(100,200,255,0.2)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Satellite dot
+  const inShadow = deg > 150 && deg < 300;
+  ctx.beginPath();
+  ctx.arc(satX, satY, 5, 0, Math.PI*2);
+  ctx.fillStyle = inShadow ? '#ff4444' : '#44ff88';
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Satellite label
+  ctx.font = '10px monospace';
+  ctx.fillStyle = '#aaccff';
+  ctx.textAlign = 'center';
+  ctx.fillText('KU-SIRAJ-1', satX, satY - 10);
+
+  // Update label below canvas
+  const label = document.getElementById('orbitLabel');
+  if(label) label.textContent = 'Phase: ' + deg.toFixed(0) + '° · ' + (inShadow ? 'ECLIPSE' : 'SUNLIT');
 }
+
+// Redraw orbit when orbit_phase_deg slider moves
+document.getElementById('orbit_phase_deg').addEventListener('input', drawOrbit);
+// Initial draw
+drawOrbit();
+
+// Redraw orbit periodically (for auto-rotate)
+setInterval(drawOrbit, 500);
 
 /* ── Log ── */
 function log(msg){
