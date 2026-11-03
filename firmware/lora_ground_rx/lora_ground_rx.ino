@@ -1,55 +1,50 @@
 /*
-  KU-SIRAJ 1 - GROUND side: ESP32 + SX1278 (Ra-02, 433 MHz) LoRa receiver
+  KU-SIRAJ 1 - GROUND side: ESP32 (DOIT DEVKIT V1) + RA-02 SX1278 433 MHz, RadioLib
+  Receives the satellite's LoRa packets, adds the RSSI/SNR this radio measured, and prints
+  one JSON line per packet on USB serial (115200 baud).
 
-  Receives the satellite's LoRa packets, adds the signal strength the ground radio measured
-  (lora_rssi_dbm, lora_snr_db) and prints one JSON line per packet to USB serial.
+  Then on the laptop:  ground\run_mqtt.bat COM5   -> the dashboard link updates live.
 
-  Then on the laptop:   ground\run_mqtt.bat COM5     -> dashboard link updates live
-  (or, offline:         ground\run_usb_bridge.bat COM5 -> "USB bridge" mode)
-
-  Same wiring as the satellite board:
-    NSS GPIO5, SCK GPIO18, MISO GPIO19, MOSI GPIO23, RST GPIO14, DIO0 GPIO26, 3.3 V only.
-  Library: "LoRa" by Sandeep Mistry.
+  Same RA-02 wiring as the satellite board:
+    NSS/CS GPIO5   DIO0 GPIO26   RST GPIO14   SCK GPIO18   MISO GPIO19   MOSI GPIO23
 */
 #include <SPI.h>
-#include <LoRa.h>
+#include <RadioLib.h>
 
-// ---- radio settings: MUST match lora_satellite_tx ----------------------
-const long LORA_FREQ = 433E6;
-const int  SF        = 9;
-const long BANDWIDTH = 125E3;
-const int  SYNC_WORD = 0x34;
-// -------------------------------------------------------------------------
-const int PIN_NSS = 5, PIN_RST = 14, PIN_DIO0 = 26;
+// Radio settings: must match lora_satellite_tx.
+const float FREQ_MHZ = 433.0;
+const float BW_KHZ = 125.0;
+const uint8_t SF = 9;
+const uint8_t CR = 7;
+const uint8_t SYNC_WORD = 0x12;
+
+SX1278 radio = new Module(5, 26, 14, RADIOLIB_NC);
 
 void setup() {
   Serial.begin(115200);
-  LoRa.setPins(PIN_NSS, PIN_RST, PIN_DIO0);
-  while (!LoRa.begin(LORA_FREQ)) {
-    Serial.println("{\"status\":\"lora init failed, check wiring\"}");
-    delay(2000);
+  delay(500);
+  SPI.begin(18, 19, 23, 5);
+  int state = radio.begin(FREQ_MHZ, BW_KHZ, SF, CR, SYNC_WORD);
+  if (state != RADIOLIB_ERR_NONE) {
+    Serial.printf("{\"status\":\"RA-02 init failed, code %d. Check wiring, power, antenna.\"}\n", state);
+    while (true) delay(1000);
   }
-  LoRa.setSpreadingFactor(SF);
-  LoRa.setSignalBandwidth(BANDWIDTH);
-  LoRa.setSyncWord(SYNC_WORD);
-  LoRa.enableCrc();
-  Serial.println("{\"status\":\"ground receiver ready\"}");
+  radio.setCRC(true);
+  Serial.println("{\"status\":\"KU-SIRAJ 1 ground receiver ready\"}");
 }
 
 void loop() {
-  int size = LoRa.parsePacket();
-  if (size == 0) return;
-
-  char buf[256];
-  int len = 0;
-  while (LoRa.available() && len < (int)sizeof(buf) - 1) buf[len++] = (char)LoRa.read();
-  buf[len] = 0;
-
-  // Only forward packets that look like one of ours: a JSON object.
-  if (len < 2 || buf[0] != '{' || buf[len - 1] != '}') return;
-
-  // Insert the ground-measured link quality before the closing brace.
-  buf[len - 1] = 0;
-  Serial.printf("%s,\"lora_rssi_dbm\":%d,\"lora_snr_db\":%.1f,\"telemetry_source\":\"LoRa 433 MHz\"}\n",
-                buf, LoRa.packetRssi(), LoRa.packetSnr());
+  String msg;
+  int state = radio.receive(msg);   // waits for a packet (times out after a few seconds)
+  if (state == RADIOLIB_ERR_RX_TIMEOUT) return;
+  if (state != RADIOLIB_ERR_NONE) {
+    Serial.printf("{\"status\":\"receive error %d\"}\n", state);   // e.g. CRC error from a corrupted packet
+    return;
+  }
+  msg.trim();
+  // Forward only packets that look like ours: a JSON object.
+  if (msg.length() < 2 || !msg.startsWith("{") || !msg.endsWith("}")) return;
+  msg.remove(msg.length() - 1);
+  Serial.printf("%s,\"lora_rssi_dbm\":%.0f,\"lora_snr_db\":%.1f,\"telemetry_source\":\"LoRa 433 MHz\"}\n",
+                msg.c_str(), radio.getRSSI(), radio.getSNR());
 }

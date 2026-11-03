@@ -36,7 +36,7 @@ The ground receiver adds the RSSI and SNR it measured to every packet, so the Lo
 
 | Goal | Command (in `ground/`, Windows) |
 |---|---|
-| LoRa: satellite → ground receiver → link | flash `lora_satellite_tx` and `lora_ground_rx`, plug the receiver into the laptop, `run_mqtt.bat COM5` |
+| LoRa: satellite → ground receiver → link | flash `lora_satellite_tx` and `lora_ground_rx` (RadioLib, RA-02 on CS 5 / DIO0 26 / RST 14), plug the receiver into the laptop, `run_mqtt.bat COM5` |
 | Live data from the ESP32 over USB, viewable by anyone through the link | `run_mqtt.bat COM5` |
 | Live link without hardware (simulated orbit + fault tests) | `run_simulator.bat` |
 | No internet: ESP32 over USB straight into this laptop's browser | `run_usb_bridge.bat COM5`, then choose **USB bridge** |

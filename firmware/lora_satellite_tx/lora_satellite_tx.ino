@@ -1,37 +1,35 @@
 /*
-  KU-SIRAJ 1 - SATELLITE side: ESP32-WROOM-32 + SX1278 (Ra-02, 433 MHz) LoRa transmitter
+  KU-SIRAJ 1 - SATELLITE side: ESP32 (DOIT DEVKIT V1) + RA-02 SX1278 433 MHz, RadioLib
+  Sends one compact JSON telemetry packet per second over LoRa to lora_ground_rx.
 
-  Reads the sensors and sends one compact JSON packet per second over LoRa.
-  The ground station (lora_ground_rx) receives it and passes it to the dashboard.
-  An EXAMPLE to adapt: not yet run on the team's board. Confirm pins against the eCAD.
-
-  Library: "LoRa" by Sandeep Mistry, "Adafruit INA219"  (Arduino Library Manager)
-
-  SX1278 -> ESP32 wiring (3.3 V ONLY, never 5 V; always fit the antenna before transmitting):
-    VCC 3.3V   GND GND
-    NSS  -> GPIO5     SCK  -> GPIO18    MISO -> GPIO19    MOSI -> GPIO23
-    RST  -> GPIO14    DIO0 -> GPIO26
-  INA219: SDA GPIO21, SCL GPIO22, shunt in series with the LOAD branch.
-  Battery: 100k/100k divider -> GPIO34.
+  RA-02 wiring (same as the team's RadioLib test, 3.3 V only, antenna fitted):
+    NSS/CS GPIO5   DIO0 GPIO26   RST GPIO14   SCK GPIO18   MISO GPIO19   MOSI GPIO23
+  Optional INA219 (Adafruit INA219 library): SDA GPIO21, SCL GPIO22, shunt in the LOAD branch.
+  Battery voltage: 100k/100k divider -> GPIO34 (set HAS_BATTERY_DIVIDER to false if not wired).
 */
 #include <SPI.h>
-#include <LoRa.h>
+#include <RadioLib.h>
 #include <Wire.h>
-#include <Adafruit_INA219.h>
+#if __has_include(<Adafruit_INA219.h>)
+  #include <Adafruit_INA219.h>
+  #define HAVE_INA219_LIB 1
+  Adafruit_INA219 ina219;
+#endif
 
-// ---- radio settings: MUST match lora_ground_rx -------------------------
-const long  LORA_FREQ   = 433E6;   // 433 MHz ISM band. Check the UAE (TDRA) short-range-device limits.
-const int   TX_POWER    = 10;      // dBm (10 mW). Keep low for a bench/ground demo.
-const int   SF          = 9;       // spreading factor 7..12 (higher = longer range, slower)
-const long  BANDWIDTH   = 125E3;
-const int   SYNC_WORD   = 0x34;    // private network id, same on both ends
-// -------------------------------------------------------------------------
-const int PIN_NSS = 5, PIN_RST = 14, PIN_DIO0 = 26;
+// Radio settings: must match lora_ground_rx.
+const float FREQ_MHZ = 433.0;   // 433 MHz ISM band (check UAE TDRA short-range-device limits)
+const float BW_KHZ = 125.0;
+const uint8_t SF = 9;
+const uint8_t CR = 7;
+const uint8_t SYNC_WORD = 0x12;
+const int8_t TX_POWER_DBM = 10;  // 10 mW, low power for a ground demo
+
+const bool HAS_BATTERY_DIVIDER = true;
 const int BATTERY_ADC_PIN = 34;
 const float DIVIDER_RATIO = 2.0;
 const char* DEVICE_ID = "ku-siraj-1";
 
-Adafruit_INA219 ina219;
+SX1278 radio = new Module(5, 26, 14, RADIOLIB_NC);
 bool inaOk = false;
 unsigned long packetId = 0;
 
@@ -43,40 +41,39 @@ float readBatteryVoltage() {
 
 void setup() {
   Serial.begin(115200);
+  delay(500);
+  SPI.begin(18, 19, 23, 5);
+#ifdef HAVE_INA219_LIB
   Wire.begin(21, 22);
   inaOk = ina219.begin();
+#endif
   analogReadResolution(12);
 
-  LoRa.setPins(PIN_NSS, PIN_RST, PIN_DIO0);
-  while (!LoRa.begin(LORA_FREQ)) {
-    Serial.println("{\"status\":\"lora init failed, check wiring\"}");
-    delay(2000);
+  int state = radio.begin(FREQ_MHZ, BW_KHZ, SF, CR, SYNC_WORD, TX_POWER_DBM);
+  if (state != RADIOLIB_ERR_NONE) {
+    Serial.printf("{\"status\":\"RA-02 init failed, code %d. Check wiring, power, antenna.\"}\n", state);
+    while (true) delay(1000);
   }
-  LoRa.setTxPower(TX_POWER);
-  LoRa.setSpreadingFactor(SF);
-  LoRa.setSignalBandwidth(BANDWIDTH);
-  LoRa.setSyncWord(SYNC_WORD);
-  LoRa.enableCrc();
+  radio.setCRC(true);
+  Serial.println("{\"status\":\"KU-SIRAJ 1 satellite transmitter ready\"}");
 }
 
 void loop() {
   packetId++;
-  // Keep the packet short (well under 255 bytes): no timestamp here, the ground side adds it.
   char body[200];
   int n = snprintf(body, sizeof body, "{\"device_id\":\"%s\",\"packet_id\":%lu", DEVICE_ID, packetId);
+#ifdef HAVE_INA219_LIB
   if (inaOk) {
     float busV = ina219.getBusVoltage_V() + ina219.getShuntVoltage_mV() / 1000.0f;
     n += snprintf(body + n, sizeof body - n, ",\"load_voltage_v\":%.3f,\"load_current_ma\":%.1f", busV, ina219.getCurrent_mA());
-  } else {
-    n += snprintf(body + n, sizeof body - n, ",\"load_voltage_v\":null,\"load_current_ma\":null");
   }
-  n += snprintf(body + n, sizeof body - n, ",\"battery_voltage_v\":%.3f", readBatteryVoltage());
-  // Add "temperature_c" here once the temperature sensor is chosen (send null if a read fails).
+#endif
+  if (HAS_BATTERY_DIVIDER) n += snprintf(body + n, sizeof body - n, ",\"battery_voltage_v\":%.3f", readBatteryVoltage());
+  // Add ,"temperature_c":xx.x here once the temperature sensor is wired (send null if a read fails).
   snprintf(body + n, sizeof body - n, "}");
 
-  LoRa.beginPacket();
-  LoRa.print(body);
-  LoRa.endPacket();            // blocks until sent (~0.2 s at SF9)
-  Serial.println(body);        // also visible on USB for bench debugging
+  int state = radio.transmit(body);
+  if (state == RADIOLIB_ERR_NONE) Serial.println(body);
+  else Serial.printf("{\"status\":\"transmit failed, code %d\"}\n", state);
   delay(1000);
 }
