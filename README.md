@@ -19,11 +19,13 @@ The page is read-only. It never switches power sources or controls hydrogen equi
 ## Architecture
 
 ```
-ESP32-WROOM-32 ──Wi-Fi──▶ MQTT broker ──WebSocket (wss)──▶ dashboard (any browser, via the link)
-      │                       ▲
-      └──USB serial──▶ mqtt_publisher.py   (laptop fallback when Wi-Fi is not available)
-      └──USB serial──▶ server.py ──local WebSocket──▶ dashboard "USB bridge" mode (no internet)
+SATELLITE                               GROUND STATION                              ANYONE WITH THE LINK
+ESP32 + sensors + SX1278 ──LoRa 433 MHz──▶ ESP32 + SX1278 ──USB──▶ mqtt_publisher.py ──▶ MQTT broker ──wss──▶ dashboard
+(lora_satellite_tx)                       (lora_ground_rx)          (run_mqtt.bat COMx)
+                                                            └──USB──▶ server.py ──local WebSocket──▶ dashboard "USB bridge" (no internet)
 ```
+
+The ground receiver adds the RSSI and SNR it measured to every packet, so the LoRa signal panel shows the real link. Without the radio, the satellite ESP32 can publish over Wi-Fi itself (`esp32_mqtt_telemetry`).
 
 - **Transport:** MQTT. The ESP32 (or the laptop publisher) publishes one JSON packet per second to `ku-shihab/ku-siraj-1/telemetry`; the page subscribes. Packets are *retained*, so a new viewer sees the last packet at once, with its age.
 - **Status:** the publisher sets `ku-shihab/ku-siraj-1/status` to `online`, and the broker sets it to `offline` (MQTT last will) if the publisher disappears.
@@ -34,6 +36,7 @@ ESP32-WROOM-32 ──Wi-Fi──▶ MQTT broker ──WebSocket (wss)──▶ d
 
 | Goal | Command (in `ground/`, Windows) |
 |---|---|
+| LoRa: satellite → ground receiver → link | flash `lora_satellite_tx` and `lora_ground_rx`, plug the receiver into the laptop, `run_mqtt.bat COM5` |
 | Live data from the ESP32 over USB, viewable by anyone through the link | `run_mqtt.bat COM5` |
 | Live link without hardware (simulated orbit + fault tests) | `run_simulator.bat` |
 | No internet: ESP32 over USB straight into this laptop's browser | `run_usb_bridge.bat COM5`, then choose **USB bridge** |
@@ -95,7 +98,7 @@ Run with **Demo simulation → Fault injection**, or `mqtt_publisher.py --simula
 | Sensor failure | `temperature_c: null` | Tile "Sensor fault", banner WARNING, limits table shows `null` | Pass |
 | Live packet after fallback | first fresh MQTT packet | Simulation stops, page switches to live | Pass |
 
-Tested in headless Chromium with a stubbed broker. The ESP32 sketch has not been run on the team's board.
+Tested in headless Chromium with a stubbed broker, and end to end through broker.hivemq.com from the live site. The ESP32 and LoRa sketches have not been run on the team's boards.
 
 ## Security notes
 
@@ -106,5 +109,6 @@ Tested in headless Chromium with a stubbed broker. The ESP32 sketch has not been
 
 - `index.html` — the dashboard
 - `ground/` — `telemetry.py` (data contract + simulator), `mqtt_publisher.py`, `server.py` (USB bridge), launchers
+- `firmware/lora_satellite_tx/`, `firmware/lora_ground_rx/` — SX1278 LoRa link (satellite transmitter, ground receiver)
 - `firmware/esp32_mqtt_telemetry/` — ESP32 Wi-Fi + serial example
 - `examples/` — sample logs for **Replay a log**
