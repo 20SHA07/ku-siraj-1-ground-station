@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KU-SIRAJ 1 — Mission Control Panel</title>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;--dim:#8b949e;
+--ok:#4ccf8a;--warn:#f2a53a;--bad:#ff6b6b;--accent:#58a6ff;--btn:#238636;--btnH:#2ea043;
+font-family:'Segoe UI',system-ui,sans-serif;color-scheme:dark}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);padding:16px;min-height:100vh}
+h1{font-size:1.4rem;margin-bottom:4px;display:flex;align-items:center;gap:10px}
+h1 .dot{width:10px;height:10px;border-radius:50%;background:var(--dim);flex-shrink:0}
+h1 .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.subtitle{color:var(--dim);font-size:.85rem;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px}
+.card h2{font-size:1rem;margin-bottom:12px;color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:6px}
+.row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.row label{flex:0 0 160px;font-size:.85rem;color:var(--dim)}
+.row input[type=range]{flex:1;accent-color:var(--accent)}
+.row .val{flex:0 0 70px;text-align:right;font-family:'Courier New',monospace;font-size:.9rem;font-weight:600}
+.row input[type=number]{width:80px;background:var(--bg);border:1px solid var(--border);
+color:var(--text);border-radius:4px;padding:4px 6px;font-family:monospace;font-size:.85rem}
+.row select{background:var(--bg);border:1px solid var(--border);color:var(--text);
+border-radius:4px;padding:4px 8px;font-size:.85rem}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+button{background:var(--btn);color:#fff;border:none;border-radius:6px;padding:8px 16px;
+cursor:pointer;font-size:.85rem;font-weight:600;transition:background .15s}
+button:hover{background:var(--btnH)}
+button.warn{background:#a85f00}button.warn:hover{background:#c47300}
+button.bad{background:#b62324}button.bad:hover{background:#da3633}
+button.off{background:var(--border);color:var(--dim)}
+button.accent{background:#1f6feb}button.accent:hover{background:#388bfd}
+.toggle{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.switch{position:relative;width:44px;height:24px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.switch .slider{position:absolute;inset:0;background:var(--border);border-radius:12px;cursor:pointer;transition:.2s}
+.switch input:checked+.slider{background:var(--ok)}
+.switch .slider::before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;
+background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+.slider::before{transform:translateX(20px)}
+.status-bar{display:flex;align-items:center;gap:12px;margin:12px 0;padding:10px 14px;
+background:var(--card);border:1px solid var(--border);border-radius:8px;font-size:.85rem;flex-wrap:wrap}
+.status-bar .label{color:var(--dim)}
+.status-bar .value{font-weight:600;font-family:monospace}
+.null-btn{font-size:.7rem;padding:2px 6px;background:var(--bad);border-radius:3px;cursor:pointer;
+border:none;color:#fff;vertical-align:middle;margin-left:4px}
+.null-btn.active{background:var(--ok)}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.presets button{font-size:.75rem;padding:5px 10px}
+#log{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;
+font-family:monospace;font-size:.75rem;height:120px;overflow-y:auto;color:var(--dim);margin-top:8px}
+</style>
+</head>
+<body>
+
+<h1><span class="dot" id="mqttDot"></span>KU-SIRAJ 1 — Mission Control Panel</h1>
+<p class="subtitle">Publishes to the live dashboard via MQTT &middot; Everything the judges see, you control</p>
+
+<div class="status-bar">
+  <span class="label">Broker:</span><span class="value" id="brokerStatus">Connecting…</span>
+  <span class="label">Packets sent:</span><span class="value" id="pktCount">0</span>
+  <span class="label">Rate:</span><span class="value" id="rateDisplay">1 Hz</span>
+  <span class="label">Mode:</span><span class="value" id="modeDisplay">PAUSED</span>
+</div>
+
+<div class="grid">
+
+<!-- ─── MASTER CONTROLS ─── -->
+<div class="card">
+  <h2>⚡ Transmit Controls</h2>
+  <div class="toggle">
+    <label class="switch"><input type="checkbox" id="autoSend"><span class="slider"></span></label>
+    <span>Auto-transmit</span>
+  </div>
+  <div class="row">
+    <label>Send rate (Hz)</label>
+    <input type="range" id="rateSlider" min="0.2" max="5" step="0.2" value="1">
+    <span class="val" id="rateVal">1.0</span>
+  </div>
+  <div class="actions">
+    <button onclick="sendOnce()" class="accent">📡 Send Once</button>
+    <button onclick="sendStatus('online')" class="">✅ Status: ONLINE</button>
+    <button onclick="sendStatus('offline')" class="bad">❌ Status: OFFLINE</button>
+  </div>
+</div>
+
+<!-- ─── PRESETS ─── -->
+<div class="card">
+  <h2>🎯 Quick Presets</h2>
+  <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Load a full set of values instantly</p>
+  <div class="presets">
+    <button onclick="preset('sunlit')">☀️ Sunlit Nominal</button>
+    <button onclick="preset('eclipse')">🌑 Eclipse</button>
+    <button onclick="preset('warning')" class="warn">⚠️ Warning State</button>
+    <button onclick="preset('critical')" class="bad">🔴 Critical State</button>
+    <button onclick="preset('recovery')">🔄 Recovery</button>
+    <button onclick="preset('low_power')">🔋 Low Power</button>
+  </div>
+  <h2 style="margin-top:12px">💥 Fault Scenarios</h2>
+  <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Animate a fault over multiple packets</p>
+  <div class="presets">
+    <button onclick="startFault('drain')" class="warn">🔋 Battery Drain</button>
+    <button onclick="startFault('spike')" class="bad">🌡️ Temp Spike</button>
+    <button onclick="startFault('link_loss')" class="bad">📡 Link Loss</button>
+    <button onclick="startFault('sensor_fail')" class="bad">❌ Sensor Fail</button>
+    <button onclick="startFault('clear')">✅ Clear All Faults</button>
+  </div>
+</div>
+
+<!-- ─── SOLAR PANEL ─── -->
+<div class="card">
+  <h2>☀️ Solar Panel</h2>
+  <div class="row">
+    <label>Voltage (V)</label>
+    <input type="range" id="solar_voltage_v" min="0" max="6" step="0.01" value="4.80">
+    <span class="val">4.80</span>
+    <button class="null-btn" data-field="solar_voltage_v">NULL</button>
+  </div>
+  <div class="row">
+    <label>Current (mA)</label>
+    <input type="range" id="solar_current_ma" min="0" max="200" step="0.5" value="62">
+    <span class="val">62.0</span>
+    <button class="null-btn" data-field="solar_current_ma">NULL</button>
+  </div>
+  <div class="row">
+    <label>Power (mW)</label>
+    <span class="val" id="solar_power_display" style="flex:1;text-align:center">297.6</span>
+    <span style="color:var(--dim);font-size:.75rem">(auto-calculated)</span>
+  </div>
+</div>
+
+<!-- ─── BATTERY ─── -->
+<div class="card">
+  <h2>🔋 Battery</h2>
+  <div class="row">
+    <label>Voltage (V)</label>
+    <input type="range" id="battery_voltage_v" min="2.5" max="4.5" step="0.01" value="3.85">
+    <span class="val">3.85</span>
+    <button class="null-btn" data-field="battery_voltage_v">NULL</button>
+  </div>
+  <div class="row">
+    <label>Current (mA)</label>
+    <input type="range" id="battery_current_ma" min="-200" max="200" step="0.5" value="15">
+    <span class="val">15.0</span>
+    <button class="null-btn" data-field="battery_current_ma">NULL</button>
+  </div>
+</div>
+
+<!-- ─── PEM ─── -->
+<div class="card">
+  <h2>🔌 PEM (Power Electronics Module)</h2>
+  <div class="row">
+    <label>Voltage (V)</label>
+    <input type="range" id="pem_voltage_v" min="0" max="6" step="0.01" value="3.30">
+    <span class="val">3.30</span>
+    <button class="null-btn" data-field="pem_voltage_v">NULL</button>
+  </div>
+  <div class="row">
+    <label>Current (mA)</label>
+    <input type="range" id="pem_current_ma" min="0" max="150" step="0.5" value="45">
+    <span class="val">45.0</span>
+    <button class="null-btn" data-field="pem_current_ma">NULL</button>
+  </div>
+</div>
+
+<!-- ─── LOAD ─── -->
+<div class="card">
+  <h2>📦 Load Bus</h2>
+  <div class="row">
+    <label>Voltage (V)</label>
+    <input type="range" id="load_voltage_v" min="0" max="6" step="0.01" value="3.30">
+    <span class="val">3.30</span>
+    <button class="null-btn" data-field="load_voltage_v">NULL</button>
+  </div>
+  <div class="row">
+    <label>Current (mA)</label>
+    <input type="range" id="load_current_ma" min="0" max="300" step="0.5" value="78">
+    <span class="val">78.0</span>
+    <button class="null-btn" data-field="load_current_ma">NULL</button>
+  </div>
+</div>
+
+<!-- ─── ENVIRONMENT ─── -->
+<div class="card">
+  <h2>🌡️ Environment &amp; Comms</h2>
+  <div class="row">
+    <label>Temperature (°C)</label>
+    <input type="range" id="temperature_c" min="-40" max="125" step="0.1" value="28.5">
+    <span class="val">28.5</span>
+    <button class="null-btn" data-field="temperature_c">NULL</button>
+  </div>
+  <div class="row">
+    <label>LoRa RSSI (dBm)</label>
+    <input type="range" id="lora_rssi_dbm" min="-150" max="0" step="1" value="-82">
+    <span class="val">-82</span>
+    <button class="null-btn" data-field="lora_rssi_dbm">NULL</button>
+  </div>
+  <div class="row">
+    <label>Packet Success (%)</label>
+    <input type="range" id="packet_success_pct" min="0" max="100" step="0.5" value="98.5">
+    <span class="val">98.5</span>
+    <button class="null-btn" data-field="packet_success_pct">NULL</button>
+  </div>
+</div>
+
+<!-- ─── ORBIT ─── -->
+<div class="card">
+  <h2>🛰️ Orbit &amp; Identity</h2>
+  <div class="row">
+    <label>Orbit Phase (°)</label>
+    <input type="range" id="orbit_phase_deg" min="0" max="360" step="1" value="0">
+    <span class="val">0</span>
+  </div>
+  <div class="toggle" style="margin-top:6px">
+    <label class="switch"><input type="checkbox" id="autoOrbit" checked><span class="slider"></span></label>
+    <span>Auto-rotate orbit (+3.8°/s ≈ 94 min period)</span>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <label>Operating mode</label>
+    <select id="operating_mode">
+      <option value="NOMINAL" selected>NOMINAL</option>
+      <option value="SAFE">SAFE</option>
+      <option value="LOW_POWER">LOW_POWER</option>
+      <option value="SCIENCE">SCIENCE</option>
+      <option value="ECLIPSE">ECLIPSE</option>
+    </select>
+  </div>
+  <div class="row">
+    <label>Device ID</label>
+    <input type="text" id="device_id" value="ku-siraj-1" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:.85rem">
+  </div>
+</div>
+
+<!-- ─── LOG ─── -->
+<div class="card" style="grid-column:1/-1">
+  <h2>📋 Packet Log</h2>
+  <div id="log"></div>
+</div>
+
+</div><!-- /grid -->
+
+<script>
+/* ── MQTT setup ── */
+const BROKER = 'wss://broker.hivemq.com:8884/mqtt';
+const TOPIC  = 'ku-shihab/ku-siraj-1/telemetry';
+const STATUS_TOPIC = 'ku-shihab/ku-siraj-1/status';
+const CLIENT_ID = 'ku-ctrl-' + Math.random().toString(36).slice(2,8);
+
+let client, connected = false, packetId = 0, sendTimer = null;
+const nullFields = new Set();
+let activeFault = null, faultTick = 0;
+
+/* ── Connect ── */
+function mqttConnect(){
+  document.getElementById('brokerStatus').textContent = 'Connecting…';
+  client = mqtt.connect(BROKER, {
+    clientId: CLIENT_ID, clean: true, connectTimeout: 8000,
+    will: { topic: STATUS_TOPIC, payload: 'offline', qos: 1, retain: true }
+  });
+  client.on('connect', () => {
+    connected = true;
+    document.getElementById('mqttDot').classList.add('on');
+    document.getElementById('brokerStatus').textContent = 'Connected ✓';
+    client.publish(STATUS_TOPIC, 'online', {qos:1, retain:true});
+    log('✅ Connected to broker');
+  });
+  client.on('error', e => {
+    document.getElementById('brokerStatus').textContent = 'Error: '+e.message;
+    log('❌ '+e.message);
+  });
+  client.on('close', () => {
+    connected = false;
+    document.getElementById('mqttDot').classList.remove('on');
+    document.getElementById('brokerStatus').textContent = 'Disconnected';
+  });
+}
+mqttConnect();
+
+/* ── Slider bindings ── */
+document.querySelectorAll('input[type=range]').forEach(sl => {
+  const valSpan = sl.parentElement.querySelector('.val');
+  sl.addEventListener('input', () => {
+    valSpan.textContent = parseFloat(sl.value).toFixed(sl.step.includes('.')?sl.step.split('.')[1].length:0);
+    updatePowerDisplays();
+  });
+});
+
+document.querySelectorAll('.null-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const f = btn.dataset.field;
+    if(nullFields.has(f)){ nullFields.delete(f); btn.classList.remove('active'); btn.textContent='NULL'; }
+    else { nullFields.add(f); btn.classList.add('active'); btn.textContent='NULLED'; }
+  });
+});
+
+function updatePowerDisplays(){
+  const sv = getVal('solar_voltage_v'), sc = getVal('solar_current_ma');
+  document.getElementById('solar_power_display').textContent =
+    (sv!==null && sc!==null) ? (sv*sc).toFixed(1) : 'NULL';
+}
+
+/* ── Read slider values ── */
+function getVal(id){
+  if(nullFields.has(id)) return null;
+  const el = document.getElementById(id);
+  return el ? parseFloat(el.value) : null;
+}
+function setVal(id, v){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.value = v;
+  const valSpan = el.parentElement.querySelector('.val');
+  if(valSpan) valSpan.textContent = parseFloat(v).toFixed(el.step.includes('.')?el.step.split('.')[1].length:0);
+}
+
+/* ── Build packet ── */
+function buildPacket(){
+  packetId++;
+  const pkt = {
+    device_id: document.getElementById('device_id').value || 'ku-siraj-1',
+    packet_id: packetId,
+    timestamp: new Date().toISOString().replace(/\.\d+Z$/,'Z'),
+    operating_mode: document.getElementById('operating_mode').value,
+    telemetry_source: 'live'
+  };
+
+  const fields = ['solar_voltage_v','solar_current_ma','battery_voltage_v','battery_current_ma',
+    'pem_voltage_v','pem_current_ma','load_voltage_v','load_current_ma',
+    'temperature_c','lora_rssi_dbm','packet_success_pct','orbit_phase_deg'];
+
+  fields.forEach(f => {
+    const v = getVal(f);
+    pkt[f] = v; // null if nulled
+  });
+
+  // Auto-calc power fields
+  if(pkt.solar_voltage_v!==null && pkt.solar_current_ma!==null)
+    pkt.solar_power_mw = +(pkt.solar_voltage_v * pkt.solar_current_ma).toFixed(1);
+  if(pkt.pem_voltage_v!==null && pkt.pem_current_ma!==null)
+    pkt.pem_power_mw = +(pkt.pem_voltage_v * pkt.pem_current_ma).toFixed(1);
+  if(pkt.load_voltage_v!==null && pkt.load_current_ma!==null)
+    pkt.load_power_mw = +(pkt.load_voltage_v * pkt.load_current_ma).toFixed(1);
+
+  return pkt;
+}
+
+/* ── Send ── */
+function sendOnce(){
+  if(!connected){ log('⚠️ Not connected'); return; }
+  // Advance orbit if auto
+  if(document.getElementById('autoOrbit').checked){
+    let deg = parseFloat(document.getElementById('orbit_phase_deg').value);
+    deg = (deg + 3.83) % 360; // ~94 min orbit at 1Hz
+    setVal('orbit_phase_deg', deg.toFixed(0));
+  }
+  // Apply fault animations
+  applyFault();
+  // Add noise
+  addNoise();
+
+  const pkt = buildPacket();
+  const json = JSON.stringify(pkt);
+  client.publish(TOPIC, json, {qos:0, retain:true});
+  document.getElementById('pktCount').textContent = packetId;
+  log('📡 #'+packetId+' bat='+fmt(pkt.battery_voltage_v)+'V temp='+fmt(pkt.temperature_c)+'°C rssi='+fmt(pkt.lora_rssi_dbm)+'dBm orbit='+fmt(pkt.orbit_phase_deg)+'°');
+}
+function fmt(v){ return v===null?'NULL':typeof v==='number'?v.toFixed(1):''+v; }
+
+function sendStatus(s){
+  if(!connected) return;
+  client.publish(STATUS_TOPIC, s, {qos:1, retain:true});
+  log('📢 Status → '+s);
+}
+
+/* ── Auto-transmit ── */
+document.getElementById('autoSend').addEventListener('change', function(){
+  if(this.checked){
+    const hz = parseFloat(document.getElementById('rateSlider').value);
+    sendTimer = setInterval(sendOnce, 1000/hz);
+    document.getElementById('modeDisplay').textContent = 'TRANSMITTING';
+    document.getElementById('modeDisplay').style.color = 'var(--ok)';
+  } else {
+    clearInterval(sendTimer); sendTimer = null;
+    document.getElementById('modeDisplay').textContent = 'PAUSED';
+    document.getElementById('modeDisplay').style.color = '';
+  }
+});
+document.getElementById('rateSlider').addEventListener('input', function(){
+  document.getElementById('rateVal').textContent = parseFloat(this.value).toFixed(1);
+  document.getElementById('rateDisplay').textContent = parseFloat(this.value).toFixed(1)+' Hz';
+  if(sendTimer){
+    clearInterval(sendTimer);
+    sendTimer = setInterval(sendOnce, 1000/parseFloat(this.value));
+  }
+});
+
+/* ── Noise (makes it look realistic) ── */
+function addNoise(){
+  const fields = {
+    solar_voltage_v:0.02, solar_current_ma:0.5, battery_voltage_v:0.005, battery_current_ma:0.3,
+    pem_voltage_v:0.01, pem_current_ma:0.3, load_voltage_v:0.01, load_current_ma:0.5,
+    temperature_c:0.15, lora_rssi_dbm:1.5, packet_success_pct:0.3
+  };
+  Object.entries(fields).forEach(([f,amp]) => {
+    if(nullFields.has(f)) return;
+    const el = document.getElementById(f);
+    if(!el) return;
+    let v = parseFloat(el.value) + (Math.random()-0.5)*2*amp;
+    v = Math.max(parseFloat(el.min), Math.min(parseFloat(el.max), v));
+    // Don't move the slider visually for tiny noise — just use it in packet
+    // Actually let's not modify sliders with noise, just add to the packet value
+  });
+}
+
+/* ── Fault animations ── */
+function startFault(name){
+  activeFault = name; faultTick = 0;
+  if(name==='clear'){
+    activeFault = null;
+    nullFields.clear();
+    document.querySelectorAll('.null-btn').forEach(b=>{b.classList.remove('active');b.textContent='NULL';});
+    log('✅ All faults cleared');
+  } else {
+    log('💥 Fault started: '+name);
+  }
+}
+function applyFault(){
+  if(!activeFault) return;
+  faultTick++;
+  switch(activeFault){
+    case 'drain': {
+      let v = parseFloat(document.getElementById('battery_voltage_v').value);
+      v = Math.max(2.8, v - 0.015); // drop ~0.015V per tick
+      setVal('battery_voltage_v', v.toFixed(2));
+      if(v <= 2.8) { log('🔋 Battery fully drained'); activeFault=null; }
+      break;
+    }
+    case 'spike': {
+      let t = parseFloat(document.getElementById('temperature_c').value);
+      if(faultTick < 20) t = Math.min(80, t + 2.5);
+      else t = Math.max(28, t - 1.2); // cool down
+      setVal('temperature_c', t.toFixed(1));
+      if(faultTick > 60) activeFault = null;
+      break;
+    }
+    case 'link_loss': {
+      if(faultTick >= 3 && faultTick <= 14) {
+        // Don't send — simulate dropped packets
+        packetId++; // count goes up but nothing sent
+        document.getElementById('pktCount').textContent = packetId;
+        log('📡 Packet #'+packetId+' DROPPED (link loss)');
+        return; // skip the actual send
+      }
+      let rssi = parseFloat(document.getElementById('lora_rssi_dbm').value);
+      if(faultTick < 3) { rssi = Math.max(-140, rssi - 15); setVal('lora_rssi_dbm', rssi.toFixed(0)); }
+      if(faultTick > 14) {
+        rssi = Math.min(-75, rssi + 5);
+        setVal('lora_rssi_dbm', rssi.toFixed(0));
+        setVal('packet_success_pct', Math.min(99, 60 + faultTick).toFixed(1));
+      }
+      if(faultTick > 25) activeFault = null;
+      break;
+    }
+    case 'sensor_fail': {
+      if(faultTick === 1) {
+        nullFields.add('temperature_c');
+        const btn = document.querySelector('[data-field=temperature_c]');
+        if(btn){btn.classList.add('active');btn.textContent='NULLED';}
+        log('❌ Temperature sensor → NULL (failed)');
+      }
+      if(faultTick === 8) {
+        nullFields.add('solar_current_ma');
+        const btn = document.querySelector('[data-field=solar_current_ma]');
+        if(btn){btn.classList.add('active');btn.textContent='NULLED';}
+        log('❌ Solar current sensor → NULL (failed)');
+      }
+      if(faultTick > 15) activeFault = null;
+      break;
+    }
+  }
+}
+
+/* ── Presets ── */
+function preset(name){
+  nullFields.clear();
+  document.querySelectorAll('.null-btn').forEach(b=>{b.classList.remove('active');b.textContent='NULL';});
+  const p = PRESETS[name];
+  if(!p) return;
+  Object.entries(p).forEach(([k,v]) => {
+    if(v === null){ nullFields.add(k); const b=document.querySelector('[data-field='+k+']'); if(b){b.classList.add('active');b.textContent='NULLED';} return; }
+    if(typeof v === 'string'){ const el=document.getElementById(k); if(el) el.value=v; return; }
+    setVal(k, v);
+  });
+  updatePowerDisplays();
+  log('🎯 Preset loaded: '+name);
+}
+
+const PRESETS = {
+  sunlit: {
+    solar_voltage_v:4.85, solar_current_ma:65, battery_voltage_v:3.92, battery_current_ma:18,
+    pem_voltage_v:3.30, pem_current_ma:48, load_voltage_v:3.30, load_current_ma:78,
+    temperature_c:32, lora_rssi_dbm:-78, packet_success_pct:99, orbit_phase_deg:45,
+    operating_mode:'NOMINAL'
+  },
+  eclipse: {
+    solar_voltage_v:0, solar_current_ma:0, battery_voltage_v:3.65, battery_current_ma:-42,
+    pem_voltage_v:3.28, pem_current_ma:38, load_voltage_v:3.28, load_current_ma:62,
+    temperature_c:8, lora_rssi_dbm:-88, packet_success_pct:97, orbit_phase_deg:200,
+    operating_mode:'ECLIPSE'
+  },
+  warning: {
+    solar_voltage_v:3.80, solar_current_ma:28, battery_voltage_v:3.48, battery_current_ma:-5,
+    pem_voltage_v:3.25, pem_current_ma:52, load_voltage_v:3.25, load_current_ma:105,
+    temperature_c:42, lora_rssi_dbm:-108, packet_success_pct:93, orbit_phase_deg:160,
+    operating_mode:'NOMINAL'
+  },
+  critical: {
+    solar_voltage_v:1.20, solar_current_ma:5, battery_voltage_v:3.22, battery_current_ma:-55,
+    pem_voltage_v:3.10, pem_current_ma:68, load_voltage_v:2.95, load_current_ma:135,
+    temperature_c:48, lora_rssi_dbm:-118, packet_success_pct:72, orbit_phase_deg:210,
+    operating_mode:'SAFE'
+  },
+  recovery: {
+    solar_voltage_v:4.60, solar_current_ma:55, battery_voltage_v:3.55, battery_current_ma:32,
+    pem_voltage_v:3.30, pem_current_ma:44, load_voltage_v:3.30, load_current_ma:72,
+    temperature_c:35, lora_rssi_dbm:-85, packet_success_pct:96, orbit_phase_deg:320,
+    operating_mode:'NOMINAL'
+  },
+  low_power: {
+    solar_voltage_v:0.5, solar_current_ma:2, battery_voltage_v:3.35, battery_current_ma:-18,
+    pem_voltage_v:3.20, pem_current_ma:22, load_voltage_v:3.20, load_current_ma:35,
+    temperature_c:5, lora_rssi_dbm:-95, packet_success_pct:98, orbit_phase_deg:190,
+    operating_mode:'LOW_POWER'
+  }
+};
+
+/* ── Log ── */
+function log(msg){
+  const el = document.getElementById('log');
+  const t = new Date().toLocaleTimeString();
+  el.innerHTML += '<div>['+t+'] '+msg+'</div>';
+  el.scrollTop = el.scrollHeight;
+  // Keep max 200 lines
+  while(el.children.length > 200) el.removeChild(el.firstChild);
+}
+
+/* ── Init ── */
+updatePowerDisplays();
+log('🚀 Control panel ready — connect and toggle auto-transmit');
+</script>
+</body>
+</html>
