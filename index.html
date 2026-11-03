@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KU-SIRAJ 1 Ground Station</title>
+<meta name="description" content="Live ground-station dashboard for KU-SIRAJ 1, Team KU-SHIHAB's hydrogen-assisted CubeSat power demonstrator (SatForge UAE 2026).">
+<meta name="theme-color" content="#0a1120">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect x='1' y='1' width='32' height='32' rx='8' fill='%2314223b'/%3E%3Crect x='12' y='12' width='10' height='10' rx='1.5' fill='none' stroke='%23e5ecf8' stroke-width='1.6'/%3E%3Crect x='4' y='14.5' width='7' height='5' fill='%23f4b13e'/%3E%3Crect x='23' y='14.5' width='7' height='5' fill='%23f4b13e'/%3E%3Ccircle cx='17' cy='17' r='2' fill='%236ea9ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+/* Layout: mission-control console. Header (mission | link | last packet age), then the
+   5-second health banner, data-source controls, orbit + power flow, six channel tiles,
+   four time-based trend charts, coverage / link chain / events, packet inspector. */
+:root{
+  color-scheme:dark;
+  --bg:#0a1120; --panel:#0f1a2e; --panel-2:#14223b; --line:#203152; --line-soft:#182742;
+  --fg:#e5ecf8; --muted:#8a9ab6; --faint:#5d6d8a;
+  --solar:#f4b13e; --bat:#33c4ad; --pem:#6ea9ff; --temp:#ff8a7a; --load:#e5ecf8;
+  --ok:#4ccf8a; --warn:#f2a53a; --bad:#ff6b6b; --stale:#8a9ab6;
+  --shade:rgba(110,169,255,.08); --umbra:rgba(2,6,14,.72); --earth:#1d3d6b; --space:#071022; --sunray:rgba(244,177,62,.16);
+  --chip-sim:rgba(242,165,58,.14); --chip-ok:rgba(76,207,138,.14); --chip-bad:rgba(255,107,107,.14); --chip-mute:rgba(138,154,182,.12);
+  --f-display:"Chakra Petch","Bahnschrift","Segoe UI",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans","Segoe UI",system-ui,-apple-system,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+  color-scheme:light;
+  --bg:#eef2f8; --panel:#ffffff; --panel-2:#f3f6fb; --line:#d3dcea; --line-soft:#e3e9f3;
+  --fg:#111d33; --muted:#53627d; --faint:#8592a9;
+  --solar:#b46a00; --bat:#0b8a77; --pem:#2a66cf; --temp:#c9473a; --load:#111d33;
+  --ok:#17834f; --warn:#a85f00; --bad:#c43535; --stale:#53627d;
+  --shade:rgba(42,102,207,.07); --umbra:rgba(17,29,51,.22); --earth:#9cc0ea; --space:#e2e9f4; --sunray:rgba(180,106,0,.12);
+  --chip-sim:rgba(168,95,0,.10); --chip-ok:rgba(23,131,79,.10); --chip-bad:rgba(196,53,53,.10); --chip-mute:rgba(83,98,125,.10);
+}}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#eef2f8; --panel:#ffffff; --panel-2:#f3f6fb; --line:#d3dcea; --line-soft:#e3e9f3;
+  --fg:#111d33; --muted:#53627d; --faint:#8592a9;
+  --solar:#b46a00; --bat:#0b8a77; --pem:#2a66cf; --temp:#c9473a; --load:#111d33;
+  --ok:#17834f; --warn:#a85f00; --bad:#c43535; --stale:#53627d;
+  --shade:rgba(42,102,207,.07); --umbra:rgba(17,29,51,.22); --earth:#9cc0ea; --space:#e2e9f4; --sunray:rgba(180,106,0,.12);
+  --chip-sim:rgba(168,95,0,.10); --chip-ok:rgba(23,131,79,.10); --chip-bad:rgba(196,53,53,.10); --chip-mute:rgba(83,98,125,.10);
+}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{background:var(--bg);color:var(--fg);font:14px/1.45 var(--f-body);margin:0}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--panel)}
+[hidden]{display:none!important}
+button,input,select{font:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+
+/* header */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--panel);border-bottom:1px solid var(--line);
+  padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.top-in{max-width:1440px;margin-inline:auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.mark{width:34px;height:34px;flex:none}
+.brand h1{font:600 17px/1.1 var(--f-display);letter-spacing:.02em;margin:0;white-space:nowrap}
+.brand p{margin:2px 0 0;font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.status{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.pill.ok{color:var(--ok);background:var(--chip-ok)} .pill.ok i{background:var(--ok)}
+.pill.sim{color:var(--warn);background:var(--chip-sim)} .pill.sim i{background:var(--warn)}
+.pill.bad{color:var(--bad);background:var(--chip-bad)} .pill.bad i{background:var(--bad)}
+.pill.mute{color:var(--muted);background:var(--chip-mute)}
+@media (prefers-reduced-motion: no-preference){.pill.ok i{animation:blink 1.6s ease-in-out infinite}@keyframes blink{50%{opacity:.35}}}
+.clock{font:500 12px var(--f-mono);color:var(--muted);white-space:nowrap}
+
+.wrap{max-width:1440px;margin-inline:auto;padding-block:16px 28px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
+
+/* health banner: the 5-second answer */
+.health{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 18px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px;position:relative;overflow:hidden}
+.health::before{content:"";position:absolute;inset:0 auto 0 0;width:5px;background:var(--hc,var(--faint))}
+.health[data-level="ok"]{--hc:var(--ok)} .health[data-level="warn"]{--hc:var(--warn)} .health[data-level="bad"]{--hc:var(--bad)}
+.health[data-level="stale"],.health[data-level="none"],.health[data-level="paused"]{--hc:var(--stale)}
+.h-state{display:flex;align-items:center;gap:10px;padding-left:4px}
+.h-state i{width:14px;height:14px;border-radius:50%;background:var(--hc,var(--faint));box-shadow:0 0 0 5px color-mix(in srgb,var(--hc,var(--faint)) 22%,transparent)}
+.h-state b{font:600 26px/1 var(--f-display);letter-spacing:.06em;color:var(--hc,var(--fg))}
+.h-body{min-width:0}
+.h-body p{margin:0;font-size:14px;font-weight:500}
+.h-body ul{margin:3px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:3px 14px;font-size:12px;color:var(--muted)}
+.h-body li::before{content:"• ";color:var(--hc)}
+.h-meta{display:flex;flex-direction:column;align-items:flex-end;gap:1px;text-align:right}
+.h-meta span{font-size:10.5px;color:var(--muted);letter-spacing:.07em;text-transform:uppercase}
+.h-meta b{font:500 18px var(--f-mono);white-space:nowrap}
+@media (max-width:640px){.health{grid-template-columns:auto 1fr}.h-body{grid-column:1/-1;grid-row:2}.h-meta{grid-row:1;grid-column:2}}
+@media (prefers-reduced-motion: no-preference){.health[data-level="bad"] .h-state i{animation:pulse 1.2s ease-in-out infinite}@keyframes pulse{50%{box-shadow:0 0 0 9px transparent}}}
+
+.fallback{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;border:1px dashed var(--warn);border-radius:var(--r);padding:8px 12px;font-size:13px;color:var(--muted);background:var(--chip-sim)}
+.fallback strong{color:var(--fg)}
+
+/* controls */
+.controls{display:flex;flex-direction:column;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.c-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;flex-wrap:wrap}
+.seg button{border:0;background:transparent;padding:7px 13px;border-radius:7px;cursor:pointer;font-weight:500;color:var(--muted);white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.seg.sm button{padding:4px 10px;font-size:12px}
+@media (max-width:600px){#modeSeg{display:grid;grid-template-columns:1fr 1fr;width:100%}#modeSeg button{white-space:normal;line-height:1.2}}
+.ctx{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;flex:none}
+.ctx .hint{font-size:12px;color:var(--muted);min-width:0;flex:1 1 14rem}
+.btn{border:1px solid var(--line);background:var(--panel-2);border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn.sm{padding:4px 10px;font-size:12px}
+.btn.fault{border-style:dashed}
+.btn.fault[aria-pressed="true"]{border-style:solid;border-color:var(--warn);color:var(--warn);background:var(--chip-sim)}
+.btn.rec[aria-pressed="true"]{color:var(--bad);border-color:var(--bad)}
+.btn.rec[aria-pressed="true"]::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:7px}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--pem);outline-offset:2px}
+select,input[type=text]{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;min-width:0}
+.field{font-family:var(--f-mono);font-size:12px;width:16rem;max-width:100%}
+.lbl{font-size:12px;color:var(--muted)}
+.rec-group{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-left:auto}
+.small{font-size:12px;color:var(--muted)}
+.prog{flex:1 1 8rem;min-width:6rem;height:6px;background:var(--panel-2);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.prog span{display:block;height:100%;width:0;background:var(--pem)}
+.drop{border:1px dashed var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--muted)}
+.drop.over{border-color:var(--pem);color:var(--fg)}
+.faults{display:flex;flex-wrap:wrap;align-items:center;gap:6px;border-top:1px solid var(--line-soft);padding-top:10px}
+.faults .lbl{margin-right:4px}
+
+/* cards */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;min-width:0;position:relative}
+.card-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.card-h h2{margin:0;font:600 13px/1.2 var(--f-display);letter-spacing:.08em;text-transform:uppercase}
+.card-h small{font-size:11px;color:var(--muted)}
+
+.hero{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+@media (min-width:900px){.hero{grid-template-columns:minmax(17rem,.72fr) minmax(0,1.7fr)}}
+.orbit-wrap{display:flex;flex-direction:column;align-items:center;gap:6px}
+#orbitSvg{width:100%;max-width:280px;height:auto;display:block}
+.orbit-read{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kv{background:var(--panel-2);border:1px solid var(--line-soft);border-radius:8px;padding:8px 10px;min-width:0}
+.kv span{display:block;font-size:10.5px;color:var(--muted);letter-spacing:.07em;text-transform:uppercase}
+.kv b{display:block;font:500 15px var(--f-mono);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mode-band{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:8px;padding:8px 10px;background:var(--panel-2);border:1px solid var(--line-soft)}
+.mode-band span{font-size:10.5px;color:var(--muted);letter-spacing:.07em;text-transform:uppercase}
+.mode-band b{font:600 14px var(--f-display);letter-spacing:.06em;text-transform:uppercase}
+#flowBox{position:relative;min-height:320px}
+#flowSvg{display:block;width:100%}
+.flow-foot{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:11.5px;color:var(--muted);margin-top:6px}
+@media (prefers-reduced-motion: no-preference){.fl{animation:dash linear infinite}.fl.rev{animation-direction:reverse}@keyframes dash{to{stroke-dashoffset:-28}}}
+.is-stale .fl{animation-play-state:paused}
+.is-stale #flowSvg{opacity:.55}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,11.5rem),1fr));gap:12px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px 10px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.tile-h{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.tile .lab{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:600;min-width:0;white-space:nowrap}
+.tile .lab i{width:8px;height:8px;border-radius:2px;flex:none}
+.tile .val{font:500 28px/1.15 var(--f-display);margin-top:6px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tile .val small{font:500 12px var(--f-body);color:var(--muted);margin-left:4px}
+.tile .val.none{color:var(--faint)}
+.tile[data-lvl="bad"]{border-color:var(--bad)} .tile[data-lvl="bad"] .val{color:var(--bad)}
+.tile[data-lvl="warn"] .val{color:var(--warn)}
+.tile[data-lvl="fail"]{border-style:dashed;border-color:var(--warn)}
+.tile.stale .val{color:var(--stale);opacity:.7}
+.tile .sub{font-size:11.5px;color:var(--muted);min-height:1.4em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile canvas{width:100%;height:30px;display:block;margin-top:4px}
+.c-solar{background:var(--solar)} .c-bat{background:var(--bat)} .c-pem{background:var(--pem)} .c-temp{background:var(--temp)} .c-load{background:var(--load)} .c-ok{background:var(--ok)} .c-bad{background:var(--bad)} .c-warn{background:var(--warn)}
+.chip{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:99px;padding:1px 8px;white-space:nowrap}
+.chip.ok{color:var(--ok);background:var(--chip-ok)}
+.chip.warn,.chip.sim{color:var(--warn);background:var(--chip-sim)}
+.chip.bad{color:var(--bad);background:var(--chip-bad)}
+.chip.fail{color:var(--warn);background:transparent;border:1px dashed var(--warn)}
+.chip.rep{color:var(--pem);background:var(--shade)}
+.chip.mute,.chip.none,.chip.stale{color:var(--muted);background:var(--chip-mute)}
+
+/* charts */
+.chart-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.chart-bar h2{margin:0;font:600 13px/1.2 var(--f-display);letter-spacing:.08em;text-transform:uppercase}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,30rem),1fr));gap:14px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:var(--muted);margin-bottom:6px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:10px;height:3px;border-radius:2px}
+.legend .shade{width:10px;height:10px;border-radius:2px;background:var(--shade);border:1px solid var(--line)}
+.legend .dash{width:12px;height:0;border-top:2px dashed var(--warn);border-radius:0}
+.legend .dash.bad{border-color:var(--bad)}
+.plot{position:relative;height:200px;touch-action:pan-y}
+.plot canvas{position:absolute;inset:0;width:100%;height:100%}
+.tt{position:absolute;pointer-events:none;z-index:3;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.25);padding:6px 9px;font-size:11.5px;white-space:nowrap}
+.tt .h{color:var(--muted);font-family:var(--f-mono);margin-bottom:2px}
+.tt div{display:flex;align-items:center;gap:6px}
+.tt i{width:8px;height:8px;border-radius:2px}
+
+/* lower */
+.lower{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,21rem),1fr));gap:14px}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;font-weight:600;color:var(--muted);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;padding:6px 8px 6px 0;border-bottom:1px solid var(--line)}
+td{padding:6px 8px 6px 0;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.v{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+td.lim,td.age{color:var(--muted);font-family:var(--f-mono);font-size:11px}
+.warnbox{margin-top:10px;font-size:12px;border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:8px;padding:8px 10px;color:var(--muted)}
+.warnbox strong{color:var(--fg)}
+
+.chain{display:flex;align-items:stretch;gap:4px;margin:4px 0 12px;flex-wrap:wrap}
+.stage{flex:1 1 4.5rem;min-width:0;border:1px solid var(--line);border-radius:8px;padding:7px 8px;background:var(--panel-2);text-align:center}
+.stage b{display:block;font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stage span{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted);margin-top:3px}
+.stage span i{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.stage span em{font-style:normal}
+.stage.on{border-color:var(--ok)} .stage.on span i{background:var(--ok)}
+.stage.warn span i{background:var(--warn)}
+.stage.bad{border-color:var(--bad)} .stage.bad span i{background:var(--bad)}
+.stage.off{opacity:.55}
+.arrow{align-self:center;color:var(--faint);font-size:12px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+.ev-tools{display:flex;gap:6px;align-items:center}
+.ev-tools button{border:1px solid var(--line);background:transparent;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--muted)}
+.ev-tools button[aria-pressed="true"]{color:var(--fg);border-color:var(--muted)}
+#events{list-style:none;margin:0;padding:0;max-height:300px;overflow:auto}
+#events li{display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12px}
+#events time{font:400 11px var(--f-mono);color:var(--muted)}
+#events p{margin:0;min-width:0;overflow-wrap:anywhere}
+.empty{color:var(--muted);font-size:12px;padding:8px 0}
+
+details.inspect{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px}
+details.inspect summary{cursor:pointer;font:600 13px var(--f-display);letter-spacing:.08em;text-transform:uppercase}
+details.inspect summary small{font:400 12px var(--f-body);letter-spacing:0;text-transform:none;color:var(--muted);margin-left:8px}
+.inspect-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,20rem),1fr));gap:14px;margin-top:10px}
+pre{margin:0;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:8px;padding:10px;font:12px/1.5 var(--f-mono);overflow:auto;max-height:260px;white-space:pre}
+.inspect-grid h3{margin:0 0 6px;font-size:12px;font-weight:600;color:var(--muted)}
+
+footer{font-size:11.5px;color:var(--muted);line-height:1.6;max-width:66rem}
+footer strong{color:var(--fg);font-weight:600}
+footer a{color:var(--pem)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 34 34" aria-hidden="true"><rect x="1" y="1" width="32" height="32" rx="8" fill="var(--panel-2)" stroke="var(--line)"/><rect x="12" y="12" width="10" height="10" rx="1.5" fill="none" stroke="var(--fg)" stroke-width="1.6"/><rect x="4" y="14.5" width="7" height="5" fill="var(--solar)"/><rect x="23" y="14.5" width="7" height="5" fill="var(--solar)"/><circle cx="17" cy="17" r="2" fill="var(--pem)"/></svg>
+    <div><h1>KU-SIRAJ 1</h1><p>Team KU-SHIHAB · Hydrogen-assisted power demonstrator · Ground station</p></div>
+  </div>
+  <div class="status" aria-live="polite">
+    <span class="pill sim" id="dataPill"><i></i><span id="dataText">Simulated data</span></span>
+    <span class="pill mute" id="linkPill"><i></i><span id="linkText">Connecting</span></span>
+    <span class="pill mute" id="agePill"><span id="ageText">No packet yet</span></span>
+    <span class="clock" id="clock">--:--:-- GST</span>
+  </div>
+</div></header>
+
+<main class="wrap">
+  <section class="health" id="health" data-level="none" aria-live="polite" aria-label="Satellite health">
+    <div class="h-state"><i></i><b id="hWord">NO DATA</b></div>
+    <div class="h-body"><p id="hLine">Waiting for the first packet.</p><ul id="hReasons"></ul></div>
+    <div class="h-meta"><span>Last packet</span><b id="hAge">--</b><span id="hSrc">--</span></div>
+  </section>
+
+  <div class="fallback" id="fallback" hidden>
+    <span><strong>No live packets on the radio link right now</strong> <span id="fallbackAge"></span>. Showing the simulation; live data takes over automatically when the satellite transmits.</span>
+  </div>
+
+  <section class="controls" aria-label="Data source">
+    <div class="c-row">
+      <div class="seg" id="modeSeg" role="group" aria-label="Data source">
+        <button type="button" data-mode="live" aria-pressed="true">Live (MQTT)</button>
+        <button type="button" data-mode="demo" aria-pressed="false">Demo simulation</button>
+        <button type="button" data-mode="replay" aria-pressed="false">Replay a log</button>
+        <button type="button" data-mode="local" aria-pressed="false">USB bridge</button>
+      </div>
+      <div class="rec-group">
+        <button type="button" class="btn rec" id="recBtn" aria-pressed="false">Record CSV</button>
+        <button type="button" class="btn" id="csvSave" hidden>Download CSV</button>
+        <button type="button" class="btn" id="csvCopy" hidden>Copy CSV</button>
+        <span class="small num" id="recInfo"></span>
+      </div>
+    </div>
+
+    <div class="ctx" id="ctxLive">
+      <label class="lbl" for="brokerUrl">Broker</label>
+      <input type="text" id="brokerUrl" class="field" value="wss://broker.hivemq.com:8884/mqtt" spellcheck="false" autocomplete="off">
+      <label class="lbl" for="topic">Topic</label>
+      <input type="text" id="topic" class="field" value="ku-shihab/ku-siraj-1/telemetry" spellcheck="false" autocomplete="off">
+      <button type="button" class="btn primary" id="mqttBtn">Reconnect</button>
+      <span class="hint" id="liveHint">Subscribes to the team's telemetry topic. The ESP32 (Wi-Fi) or mqtt_publisher.py (USB) publishes one JSON packet per second.</span>
+    </div>
+
+    <div class="ctx" id="ctxDemo" hidden>
+      <button type="button" class="btn" id="demoPause">Pause</button>
+      <label class="lbl" for="demoSpeed">Orbit speed</label>
+      <select id="demoSpeed"><option value="1">1 orbit-min / s</option><option value="3">3 orbit-min / s</option><option value="8">8 orbit-min / s</option></select>
+      <span class="hint">Multisim power-path model (36 Ω placeholder load) run through a simulated 94-minute orbit. Values are synthetic.</span>
+    </div>
+
+    <div class="ctx" id="ctxReplay" hidden>
+      <input type="file" id="replayFile" class="sr" accept=".jsonl,.json,.csv,.txt,.log">
+      <button type="button" class="btn" id="replayPick">Open log file</button>
+      <button type="button" class="btn" id="replaySample">Load sample orbit</button>
+      <span class="drop" id="dropZone">or drop a .jsonl / .csv here</span>
+      <button type="button" class="btn" id="replayPlay" disabled>Play</button>
+      <select id="replaySpeed" aria-label="Replay speed"><option value="1">1×</option><option value="4">4×</option><option value="16">16×</option></select>
+      <div class="prog" aria-hidden="true"><span id="replayProg"></span></div>
+      <span class="small num" id="replayInfo">No file loaded</span>
+    </div>
+
+    <div class="ctx" id="ctxLocal" hidden>
+      <label class="lbl" for="bridgeUrl">Bridge</label>
+      <input type="text" id="bridgeUrl" class="field" value="ws://127.0.0.1:8000" spellcheck="false" autocomplete="off">
+      <button type="button" class="btn primary" id="localConnect">Connect</button>
+      <span class="hint" id="localHint">For a laptop wired to the ESP32: run server.py, then connect. Works in Chrome and Edge from this page or the downloaded copy.</span>
+    </div>
+
+    <div class="faults" id="faultRow">
+      <span class="lbl">Fault injection (simulation only)</span>
+      <button type="button" class="btn sm fault" data-fault="drain" aria-pressed="false">Battery falling</button>
+      <button type="button" class="btn sm fault" data-fault="spike" aria-pressed="false">Temperature spike</button>
+      <button type="button" class="btn sm fault" data-fault="link" aria-pressed="false">Link lost 12 s</button>
+      <button type="button" class="btn sm fault" data-fault="sensor" aria-pressed="false">Temp sensor failure</button>
+      <button type="button" class="btn sm" id="faultClear">Clear faults</button>
+    </div>
+  </section>
+
+  <section class="hero">
+    <article class="card" aria-labelledby="orbitH">
+      <div class="card-h"><h2 id="orbitH">Orbit &amp; mode</h2><small id="orbitNote">Where is it, and is it in sunlight?</small></div>
+      <div class="orbit-wrap">
+        <svg id="orbitSvg" viewBox="0 0 240 200" role="img" aria-label="Orbit position relative to Earth's shadow"></svg>
+        <div class="mode-band"><span>Reported mode</span><b id="modeText">--</b></div>
+        <div class="orbit-read">
+          <div class="kv"><span id="nextLabel">Next eclipse</span><b id="nextVal">--</b></div>
+          <div class="kv"><span>Orbit phase</span><b id="phaseVal">--</b></div>
+        </div>
+      </div>
+    </article>
+    <article class="card" aria-labelledby="flowH">
+      <div class="card-h"><h2 id="flowH">Power flow</h2><small>Which source is carrying the bus? · hover for detail</small></div>
+      <div id="flowBox"><svg id="flowSvg" role="img" aria-label="Power flow from solar, battery and PEM sources to the load bus"></svg></div>
+      <div class="flow-foot"><span>Each source reaches the bus through its own 1N5819G Schottky diode. Line width follows current.</span><span>Dashed grey = channel not in telemetry.</span></div>
+    </article>
+  </section>
+
+  <section class="tiles" aria-label="Latest values">
+    <div class="tile" id="tileSolar"><div class="tile-h"><div class="lab"><i class="c-solar"></i>Solar input</div><span class="chip none">--</span></div><div class="val" id="tSolar">--<small>mW</small></div><div class="sub" id="sSolar">--</div><canvas id="kSolar"></canvas></div>
+    <div class="tile" id="tileBat"><div class="tile-h"><div class="lab"><i class="c-bat"></i>Battery</div><span class="chip none">--</span></div><div class="val" id="tBat">--<small>V</small></div><div class="sub" id="sBat">--</div><canvas id="kBat"></canvas></div>
+    <div class="tile" id="tilePem"><div class="tile-h"><div class="lab"><i class="c-pem"></i>PEM fuel cell</div><span class="chip none">--</span></div><div class="val" id="tPem">--<small>mW</small></div><div class="sub" id="sPem">--</div><canvas id="kPem"></canvas></div>
+    <div class="tile" id="tileLoad"><div class="tile-h"><div class="lab"><i class="c-load"></i>Load branch</div><span class="chip none">--</span></div><div class="val" id="tLoad">--<small>mW</small></div><div class="sub" id="sLoad">--</div><canvas id="kLoad"></canvas></div>
+    <div class="tile" id="tileTemp"><div class="tile-h"><div class="lab"><i class="c-temp"></i>Temperature</div><span class="chip none">--</span></div><div class="val" id="tTemp">--<small>°C</small></div><div class="sub" id="sTemp">--</div><canvas id="kTemp"></canvas></div>
+    <div class="tile" id="tileRadio"><div class="tile-h"><div class="lab"><i class="c-ok"></i>Radio link</div><span class="chip none">--</span></div><div class="val" id="tRssi">--<small>dBm</small></div><div class="sub" id="sRssi">--</div><canvas id="kRssi"></canvas></div>
+  </section>
+
+  <section aria-label="Trends" style="display:flex;flex-direction:column;gap:10px">
+    <div class="chart-bar"><h2>Trends</h2>
+      <div class="seg sm" id="rangeSeg" role="group" aria-label="Time range">
+        <button type="button" data-range="60" aria-pressed="false">1 min</button>
+        <button type="button" data-range="300" aria-pressed="true">5 min</button>
+        <button type="button" data-range="900" aria-pressed="false">15 min</button>
+        <button type="button" data-range="0" aria-pressed="false">All</button>
+      </div>
+    </div>
+    <div class="charts">
+      <article class="card"><div class="card-h"><h2>Power channels</h2><small>Is the bus getting enough power? · mW</small></div>
+        <div class="legend"><span><i class="c-solar"></i>Solar</span><span><i class="c-pem"></i>PEM</span><span><i class="c-load"></i>Load</span><span><i class="shade"></i>Eclipse</span></div>
+        <div class="plot" id="pPower"><canvas></canvas></div></article>
+      <article class="card"><div class="card-h"><h2>Voltages</h2><small>Is the battery inside its limits? · V</small></div>
+        <div class="legend"><span><i class="c-solar"></i>Solar</span><span><i class="c-bat"></i>Battery</span><span><i class="c-load"></i>Load bus</span><span><i class="c-pem"></i>PEM</span><span><i class="dash"></i>Battery warn 3.5</span><span><i class="dash bad"></i>critical 3.3</span></div>
+        <div class="plot" id="pVolt"><canvas></canvas></div></article>
+      <article class="card"><div class="card-h"><h2>Temperature</h2><small>Is the bay within limits? · °C</small></div>
+        <div class="legend"><span><i class="c-temp"></i>Board</span><span><i class="dash"></i>Warn 40</span><span><i class="dash bad"></i>Critical 45</span><span><i class="shade"></i>Eclipse</span></div>
+        <div class="plot" id="pTemp"><canvas></canvas></div></article>
+      <article class="card"><div class="card-h"><h2>LoRa signal</h2><small>Is the link alive? · dBm</small></div>
+        <div class="legend"><span><i class="c-pem"></i>RSSI</span><span><i class="dash"></i>Warn −105</span><span><i class="dash bad"></i>Critical −115</span></div>
+        <div class="plot" id="pRssi"><canvas></canvas></div></article>
+    </div>
+  </section>
+
+  <section class="lower">
+    <article class="card"><div class="card-h"><h2>Channel limits</h2><small>Latest value against its limits</small></div>
+      <div class="tablewrap"><table><thead><tr><th>Channel</th><th>Latest</th><th>State</th><th>Warn / critical</th><th>Seen</th></tr></thead><tbody id="covBody"></tbody></table></div>
+      <div class="warnbox" id="branchWarn" hidden><strong>Check current sensing.</strong> <span id="branchText"></span></div>
+    </article>
+
+    <article class="card"><div class="card-h"><h2>Link &amp; data health</h2><small>Read-only path</small></div>
+      <div class="chain" id="chain">
+        <div class="stage" data-stage="1"><b>ESP32-WROOM-32</b><span><i></i><em>--</em></span></div><span class="arrow">→</span>
+        <div class="stage" data-stage="2"><b>Publisher</b><span><i></i><em>--</em></span></div><span class="arrow">→</span>
+        <div class="stage" data-stage="3"><b>MQTT broker</b><span><i></i><em>--</em></span></div><span class="arrow">→</span>
+        <div class="stage on" data-stage="4"><b>This page</b><span><i></i><em>Open</em></span></div>
+      </div>
+      <div class="stats">
+        <div class="kv"><span>Packets received</span><b class="num" id="hRecv">0</b></div>
+        <div class="kv"><span>Missing (ID gaps)</span><b class="num" id="hLost">0</b></div>
+        <div class="kv"><span>Packet success</span><b class="num" id="hSucc">--</b></div>
+        <div class="kv"><span>Last packet ID</span><b class="num" id="hId">--</b></div>
+        <div class="kv"><span>Device</span><b id="hDev">--</b></div>
+        <div class="kv"><span>Telemetry source</span><b id="hTsrc">--</b></div>
+      </div>
+    </article>
+
+    <article class="card"><div class="card-h"><h2>Events</h2>
+      <div class="ev-tools"><button type="button" id="evAll" aria-pressed="true">All</button><button type="button" id="evWarn" aria-pressed="false">Alerts <span id="evCount" class="num">0</span></button><button type="button" id="evClear">Clear</button></div></div>
+      <ul id="events"></ul>
+    </article>
+  </section>
+
+  <details class="inspect" id="inspect">
+    <summary>Packet inspector<small>Last packet as received, and the data contract</small></summary>
+    <div class="inspect-grid">
+      <div><h3>Latest packet</h3><pre id="rawPacket">Waiting for a packet…</pre></div>
+      <div><h3>Data contract: one JSON object per message (MQTT payload or USB serial line)</h3><pre>{"device_id":"ku-siraj-1","packet_id":12,
+ "timestamp":"2026-11-03T08:00:00Z",
+ "operating_mode":"SUNLIGHT",
+ "solar_voltage_v":4.9,"solar_current_ma":55.2,
+ "battery_voltage_v":3.84,"temperature_c":26.1,
+ "lora_rssi_dbm":-85,"simulated":false}
+
+device_id, packet_id required. timestamp: ISO 8601 UTC,
+set by the publisher on receipt if the ESP32 has no clock.
+Channel not wired  -> leave the field out.
+Sensor read failed -> send the field as null.
+Optional: battery_current_ma (+ = discharging),
+pem_voltage_v, pem_current_ma, load_voltage_v,
+load_current_ma, *_power_mw, packet_success_pct,
+wifi_rssi_dbm, orbit_phase_deg (0 = shadow centre).
+Power is V × mA when *_power_mw is omitted.</pre></div>
+    </div>
+  </details>
+
+  <footer><strong>KU-SIRAJ 1 · Team KU-SHIHAB · SatForge UAE 2026.</strong> Read-only ground station: it never switches power sources or controls hydrogen equipment, and it is not flight hardware. PEM figures are provisional until bench-verified. Simulated and replayed values are labelled and are not measurements. The demo uses the team's Multisim 14.1 power-path model (solar 5 V × 80 mA, 3.7 V 1000 mAh battery, provisional 0.6 V × 100 mA PEM cell) and shows every branch at once, while the planned board lists one INA219 that measures one shunt branch at a time. Live data travels over a public MQTT test broker, so anyone who knows the topic can publish to it; the page validates every packet. Limits are provisional: battery warn 3.5 V / critical 3.3 V, temperature warn 40 °C / critical 45 °C, RSSI warn −105 / critical −115 dBm, packet success warn 95 % / critical 80 %, stale after 5 s. Times are Gulf Standard Time (UTC+4). Battery state of charge is not estimated. Setup, data contract and test plan: <a href="https://github.com/20SHA07/ku-siraj-1-ground-station">github.com/20SHA07/ku-siraj-1-ground-station</a>.</footer>
+</main>
+
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+
+/* ---------- data dictionary: units, possible range, warn / critical limits ---------- */
+const DICT={
+  solar_voltage_v:{label:'Solar voltage',unit:'V',d:2,range:[-0.5,7]},
+  solar_current_ma:{label:'Solar current',unit:'mA',d:1,range:[-5,200],warn:{hi:85}},
+  battery_voltage_v:{label:'Battery voltage',unit:'V',d:2,range:[2.5,4.5],warn:{lo:3.5,hi:4.2},crit:{lo:3.3,hi:4.25},flat:true},
+  battery_current_ma:{label:'Battery current',unit:'mA',d:1,range:[-500,500]},
+  pem_voltage_v:{label:'PEM voltage',unit:'V',d:2,range:[-0.1,1.5]},
+  pem_current_ma:{label:'PEM current',unit:'mA',d:1,range:[-5,150],warn:{hi:100}},
+  load_voltage_v:{label:'Load bus voltage',unit:'V',d:2,range:[0,6],warn:{lo:3.3},crit:{lo:3.0}},
+  load_current_ma:{label:'Load current',unit:'mA',d:1,range:[-5,300],warn:{hi:110},crit:{hi:130}},
+  temperature_c:{label:'Temperature',unit:'°C',d:1,range:[-40,125],warn:{lo:0,hi:40},crit:{lo:-10,hi:45},flat:true},
+  lora_rssi_dbm:{label:'LoRa RSSI',unit:'dBm',d:0,range:[-150,0],warn:{lo:-105},crit:{lo:-115}},
+  packet_success_pct:{label:'Packet success',unit:'%',d:1,range:[0,100],warn:{lo:95},crit:{lo:80}}
+};
+const NUM=['solar_voltage_v','solar_current_ma','solar_power_mw','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','pem_power_mw','load_voltage_v','load_current_ma','load_power_mw','temperature_c','lora_rssi_dbm','wifi_rssi_dbm','packet_success_pct','orbit_phase_deg'];
+const COLS=['timestamp','device_id','packet_id','telemetry_source','operating_mode'].concat(NUM,['simulated']);
+const ORBIT=94, ECL=35, ECL_HALF=ECL/ORBIT*180, STALE_S=5, FALLBACK_S=8, FLAT_N=30, MAXS=2400;
+const SAMPLE_URL='examples/sample-orbit.jsonl';
+
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fx=(v,d)=>v==null||!Number.isFinite(v)?'--':v.toFixed(d);
+const mul=(a,b)=>a==null||b==null?null:a*b;
+const GST=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Dubai',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+const gst=t=>GST.format(new Date(t));
+function ago(ms){if(ms==null||!isFinite(ms))return '--';const s=Math.max(0,Math.round(ms/1000));if(s<2)return 'now';if(s<60)return s+' s ago';const m=Math.round(s/60);if(m<60)return m+' min ago';const h=Math.round(m/60);if(h<48)return h+' h ago';return Math.round(h/24)+' days ago';}
+const params=new URLSearchParams(location.search);
+if(params.get('broker'))$('brokerUrl').value=params.get('broker');
+if(params.get('topic'))$('topic').value=params.get('topic');
+
+const S={mode:'live',samples:[],last:null,lastRaw:null,lastAt:0,ids:{last:null,recv:0,lost:0},seen:{},events:[],evFilter:'all',alertState:{},
+  marks:[],range:300,rec:false,csvRows:[],csvText:'',branchWarned:false,lastEcl:null,fallback:false,lastLiveTs:null,
+  mqtt:{client:null,state:'idle',pub:null,pubAt:0,fallbackTimer:null},
+  local:{ws:null,open:false,tried:false,serial:null,port:null,retry:null},
+  demo:{timer:null,paused:false,min:88,id:0,drift:0,warm:.9,f:{drain:0,draining:false,spike:0,linkUntil:0,sensor:false}},
+  replay:{rows:[],i:0,timer:null,playing:false,name:''}};
+let wasStale=false;
+
+/* ---------- packets ---------- */
+function normalize(raw){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))return null;
+  const p={_failed:[]};
+  for(const k of NUM){
+    if(!(k in raw))continue;
+    const v=raw[k];
+    if(v===null||v===''||(typeof v==='string'&&!/^\s*-?\d/.test(v))){if(DICT[k])p._failed.push(k);continue;}
+    const x=Number(v); if(Number.isFinite(x))p[k]=x; else if(DICT[k])p._failed.push(k);
+  }
+  if(raw.packet_id!=null&&raw.packet_id!==''&&Number.isFinite(Number(raw.packet_id)))p.packet_id=Math.max(0,Math.trunc(Number(raw.packet_id)));
+  p.timestamp=typeof raw.timestamp==='string'&&raw.timestamp?raw.timestamp.slice(0,64):new Date().toISOString();
+  for(const k of ['operating_mode','telemetry_source','device_id'])if(typeof raw[k]==='string'&&raw[k])p[k]=raw[k].slice(0,60);
+  p.simulated=raw.simulated===true||raw.simulated==='true'||raw.simulated==='True'||raw.simulated===1||raw.simulated==='1';
+  if('packet_success_pct' in p)p.packet_success_pct=Math.min(100,Math.max(0,p.packet_success_pct));
+  p._solarP=p.solar_power_mw??mul(p.solar_voltage_v,p.solar_current_ma);
+  p._pemP=p.pem_power_mw??mul(p.pem_voltage_v,p.pem_current_ma);
+  p._loadP=p.load_power_mw??mul(p.load_voltage_v,p.load_current_ma);
+  const hasData=NUM.some(k=>p[k]!=null)||p._failed.length;
+  return hasData||p.packet_id!=null?p:null;
+}
+const isEcl=p=>!!p&&/ECLIPSE|SHADOW|BATTERY/i.test(p.operating_mode||'');
+const isSim=p=>!!p&&(p.simulated||p._origin==='demo');
+
+function ingest(raw,origin,opt){
+  opt=opt||{};
+  const p=normalize(raw); if(!p)return false;
+  p._origin=origin; p._at=opt.at||Date.now();
+  const I=S.ids;
+  if(p.packet_id!=null){
+    if(I.last!=null&&p.packet_id===I.last)return false;
+    if(I.last!=null&&p.packet_id>I.last+1&&p.packet_id-I.last<5000){const g=p.packet_id-I.last-1;I.lost+=g;if(!opt.quiet)log('warn',`${g} packet${g>1?'s':''} missing before #${p.packet_id}.`);}
+    else if(I.last!=null&&p.packet_id<I.last&&!opt.quiet)log('info',`Packet counter restarted at #${p.packet_id}.`);
+    I.last=p.packet_id;
+  }
+  I.recv++;
+  for(const k of NUM)if(p[k]!=null)S.seen[k]=p._at;
+  S.samples.push(p); if(S.samples.length>MAXS)S.samples.shift();
+  S.last=p; S.lastRaw=raw; S.lastAt=p._at;
+  if(!opt.quiet)checkAlerts(p); else S.lastEcl=isEcl(p);
+  if(S.rec)S.csvRows.push(COLS.map(k=>csvq(raw[k]!==undefined?raw[k]:p[k])).join(','));
+  if(!opt.quiet)render();
+  return true;
+}
+
+/* ---------- evaluation against the data dictionary ---------- */
+function flatline(k){
+  const s=S.samples; if(s.length<FLAT_N)return false;
+  const v=s[s.length-1][k]; if(v==null)return false;
+  for(let i=s.length-FLAT_N;i<s.length;i++)if(s[i][k]!==v)return false;
+  return true;
+}
+function evalCh(k,p,vOverride){
+  const D=DICT[k]; if(!D||!p)return {lvl:'none'};
+  if(p._failed&&p._failed.includes(k))return {lvl:'fail',why:`${D.label}: sensor returned no reading`};
+  const v=vOverride!==undefined?vOverride:p[k]; if(v==null)return {lvl:'none'};
+  const f=`${v.toFixed(D.d)} ${D.unit}`;
+  if(v<D.range[0]||v>D.range[1])return {lvl:'fail',why:`${D.label} ${f} is outside what the sensor can read`};
+  if(D.crit&&D.crit.lo!=null&&v<D.crit.lo)return {lvl:'bad',why:`${D.label} ${f}, below the ${D.crit.lo} ${D.unit} critical limit`};
+  if(D.crit&&D.crit.hi!=null&&v>D.crit.hi)return {lvl:'bad',why:`${D.label} ${f}, above the ${D.crit.hi} ${D.unit} critical limit`};
+  if(D.warn&&D.warn.lo!=null&&v<D.warn.lo)return {lvl:'warn',why:`${D.label} ${f}, below the ${D.warn.lo} ${D.unit} warning level`};
+  if(D.warn&&D.warn.hi!=null&&v>D.warn.hi)return {lvl:'warn',why:`${D.label} ${f}, above the ${D.warn.hi} ${D.unit} warning level`};
+  if(D.flat&&vOverride===undefined&&!isSim(p)&&flatline(k))return {lvl:'fail',why:`${D.label} unchanged for ${FLAT_N} packets (stuck sensor?)`};
+  return {lvl:'ok'};
+}
+const RANK={bad:4,fail:3,warn:2,ok:1,none:0};
+function channelStates(){
+  const p=S.last, out={};
+  for(const k in DICT){
+    if(k==='packet_success_pct'){const sc=successPct();out[k]=sc==null||S.samples.length<20?(p&&p[k]!=null?evalCh(k,p):{lvl:'none'}):evalCh(k,p||{},sc);continue;}
+    out[k]=evalCh(k,p);
+  }
+  return out;
+}
+function worst(states,keys){let w={lvl:'none'};keys.forEach(k=>{const s=states[k];if(s&&RANK[s.lvl]>RANK[w.lvl])w=s;});return w;}
+function streaming(){
+  if(S.mode==='live')return true;
+  if(S.mode==='local')return S.local.open;
+  if(S.mode==='demo')return !S.demo.paused;
+  if(S.mode==='replay')return S.replay.playing;
+  return false;
+}
+function ageMs(){return S.lastAt?Date.now()-S.lastAt:null;}
+function isStale(){const a=ageMs();return a!=null&&streaming()&&a>STALE_S*1000;}
+
+/* ---------- alerts & events ---------- */
+function log(level,msg){S.events.unshift({t:gst(Date.now()),level,msg});if(S.events.length>120)S.events.pop();renderEvents();}
+function mark(label,level){S.marks.push({t:Date.now(),label,level:level||'info'});if(S.marks.length>60)S.marks.shift();}
+function edge(key,on,level,msgOn,msgOff,markIt){
+  const was=!!S.alertState[key]; if(on===was)return; S.alertState[key]=on;
+  if(on){log(level,msgOn);if(markIt)mark(markIt,level);} else if(msgOff)log('ok',msgOff);
+}
+function checkAlerts(p){
+  const tag=isSim(p)?' (simulated)':'';
+  const st=channelStates();
+  for(const k in DICT){
+    const s=st[k], D=DICT[k];
+    edge(k+':bad',s.lvl==='bad','bad',`CRITICAL · ${s.why}${tag}.`,`${D.label} back above critical limit.`,`${D.label} critical`);
+    edge(k+':warn',s.lvl==='warn','warn',`Warning · ${s.why}${tag}.`,null);
+    edge(k+':fail',s.lvl==='fail','warn',`Sensor fault · ${s.why}${tag}.`,`${D.label} sensor reading again.`,`${D.label} sensor fault`);
+  }
+  const ecl=isEcl(p);
+  if(S.lastEcl!==null&&ecl!==S.lastEcl){log('info',ecl?`Entered eclipse${tag}. Battery takes over the bus.`:`Back in sunlight${tag}. Solar carries the bus.`);mark(ecl?'Eclipse':'Sunlight','info');}
+  S.lastEcl=ecl;
+  if(!isSim(p)){
+    const br=['solar_current_ma','battery_current_ma','pem_current_ma','load_current_ma'].filter(k=>p[k]!=null);
+    if(br.length>1&&!S.branchWarned){S.branchWarned=true;log('warn',`Packet reports ${br.length} branch currents. The component list has one INA219; confirm each has its own sensor.`);}
+  }
+}
+
+/* ---------- header, banner ---------- */
+function setVal(id,v,d,unit){const e=$(id);e.textContent=v==null||!Number.isFinite(v)?'--':v.toFixed(d);const s=document.createElement('small');s.textContent=unit;e.append(s);e.classList.toggle('none',v==null);}
+function renderStatus(){
+  const p=S.last, a=ageMs(), stale=isStale();
+  let dt,dc;
+  if(S.mode==='demo'){dt='Simulated data';dc='sim';}
+  else if(S.mode==='replay'){dt=p&&p.simulated?'Replay · simulated':'Replay · recorded';dc='sim';}
+  else{dt=p?(p.simulated?'Simulated packets':'Live telemetry'):'Waiting for data';dc=p?(p.simulated?'sim':'ok'):'mute';}
+  $('dataPill').className='pill '+dc;$('dataText').textContent=dt;
+  let lt,lc;
+  if(S.mode==='live'){const m=S.mqtt.state;lt={connected:'Broker connected',connecting:'Connecting to broker',reconnecting:'Reconnecting',offline:'Broker offline',error:'Broker error',idle:'Not connected',nolib:'MQTT unavailable'}[m]||m;lc=m==='connected'?(stale||!p?'sim':'ok'):m==='connecting'||m==='reconnecting'?'sim':'bad';}
+  else if(S.mode==='local'){lt=S.local.open?'Bridge connected':S.local.tried?'Bridge offline':'Not connected';lc=S.local.open?'ok':S.local.tried?'bad':'mute';}
+  else if(S.mode==='demo'){lt=S.demo.paused?'Demo paused':Date.now()<S.demo.f.linkUntil?'Link lost (simulated)':'Demo generator';lc=Date.now()<S.demo.f.linkUntil?'bad':'mute';}
+  else{lt=S.replay.playing?'Replaying':'Replay idle';lc='mute';}
+  $('linkPill').className='pill '+lc;$('linkText').textContent=lt;
+  $('agePill').className='pill '+(a==null?'mute':stale?'bad':'mute');
+  $('ageText').textContent=a==null?'No packet yet':`Last packet ${ago(a)}`;
+}
+function renderHealth(){
+  const h=$('health'), p=S.last, a=ageMs();
+  let lvl,word,line,reasons=[];
+  const st=channelStates();
+  const issues=Object.keys(st).filter(k=>st[k].lvl==='bad'||st[k].lvl==='warn'||st[k].lvl==='fail').sort((x,y)=>RANK[st[y].lvl]-RANK[st[x].lvl]).map(k=>st[k].why);
+  const w=worst(st,Object.keys(st)).lvl;
+  if(!p){lvl='none';word='NO DATA';line=S.mode==='live'?'No packet received from the satellite yet.':S.mode==='replay'?'Open a log to replay it.':'Waiting for the first packet.';}
+  else if(isStale()){lvl='stale';word='STALE';line=`No packet for ${Math.round(a/1000)} s. Values below are from the last packet, not live.`;reasons=issues.slice(0,3);}
+  else if(S.mode==='demo'&&S.demo.paused){lvl='paused';word='PAUSED';line='Simulation paused. Values are frozen.';}
+  else if(w==='bad'){lvl='bad';word='CRITICAL';line=issues[0];reasons=issues.slice(1,4);}
+  else if(w==='fail'||w==='warn'){lvl='warn';word='WARNING';line=issues[0];reasons=issues.slice(1,4);}
+  else{lvl='ok';word='NOMINAL';const n=Object.values(st).filter(s=>s.lvl==='ok').length;line=`All ${n} monitored channels inside limits.`;}
+  if(p&&isSim(p)&&lvl!=='none')line+=' (simulated)';
+  h.dataset.level=lvl;$('hWord').textContent=word;$('hLine').textContent=line;
+  const ul=$('hReasons');ul.replaceChildren(...reasons.map(r=>{const li=document.createElement('li');li.textContent=r;return li;}));
+  $('hAge').textContent=a==null?'--':ago(a);
+  $('hSrc').textContent=p?`${gst(p._at)} GST · ${({live:'MQTT',local:'USB bridge',demo:'simulation',replay:'replay'})[S.mode]}`:'--';
+  document.body.classList.toggle('is-stale',isStale());
+  $('fallback').hidden=!(S.mode==='demo'&&S.fallback);
+  if(S.fallback)$('fallbackAge').textContent=S.lastLiveTs?`(last real packet ${ago(Date.now()-S.lastLiveTs)})`:'(none received yet)';
+}
+
+/* ---------- tiles ---------- */
+const LVLTXT={ok:'Nominal',warn:'Warning',bad:'Critical',fail:'Sensor fault',none:'No data',stale:'Stale'};
+function tileState(id,keys,st){
+  const t=$(id), w=worst(st,keys), stale=isStale();
+  const lvl=stale&&w.lvl!=='none'?'stale':w.lvl;
+  t.dataset.lvl=lvl;t.classList.toggle('stale',stale);
+  const c=t.querySelector('.chip');c.className='chip '+lvl;c.textContent=LVLTXT[lvl];
+  c.title=w.why||'';
+}
+function linkQuality(r){return r>=-90?'Strong':r>=-105?'Fair':r>=-115?'Weak':'Very weak';}
+function successPct(){const p=S.last;if(p&&p.packet_success_pct!=null)return p.packet_success_pct;const q=S.samples.filter(x=>x.packet_id!=null).slice(-100);if(q.length<2)return null;const span=q[q.length-1].packet_id-q[0].packet_id+1;return span>0?Math.min(100,q.length/span*100):null;}
+function renderTiles(){
+  const p=S.last||{_failed:[]}, st=channelStates(), F=p._failed||[];
+  const nf=(k,t)=>F.includes(k)?'Sensor returned no reading':t;
+  setVal('tSolar',p._solarP,0,'mW');
+  $('sSolar').textContent=p.solar_voltage_v!=null||p.solar_current_ma!=null?`${fx(p.solar_voltage_v,2)} V · ${fx(p.solar_current_ma,1)} mA · rated 80 mA`:nf('solar_current_ma','Not in telemetry');
+  setVal('tBat',p.battery_voltage_v,2,'V');
+  const bi=p.battery_current_ma;
+  $('sBat').textContent=F.includes('battery_voltage_v')?'Sensor returned no reading':bi==null?(p.battery_voltage_v!=null?'Limits 3.5 / 3.3 V · SoC not estimated':'Not in telemetry'):(bi>=0?`Discharging ${fx(bi,1)} mA`:`Charging ${fx(-bi,1)} mA`)+' · limits 3.5 / 3.3 V';
+  setVal('tPem',p._pemP,0,'mW');
+  $('sPem').textContent=p.pem_voltage_v!=null||p.pem_current_ma!=null?`${fx(p.pem_voltage_v,2)} V · ${fx(p.pem_current_ma,1)} mA · provisional`:nf('pem_current_ma','Not in telemetry');
+  setVal('tLoad',p._loadP,0,'mW');
+  $('sLoad').textContent=p.load_voltage_v!=null||p.load_current_ma!=null?`${fx(p.load_voltage_v,2)} V · ${fx(p.load_current_ma,1)} mA`:nf('load_current_ma','Not in telemetry');
+  setVal('tTemp',p.temperature_c,1,'°C');
+  $('sTemp').textContent=F.includes('temperature_c')?'Sensor returned no reading':p.temperature_c==null?'Not in telemetry':'Limits 40 / 45 °C (provisional)';
+  setVal('tRssi',p.lora_rssi_dbm,0,'dBm');
+  const sc=successPct();
+  $('sRssi').textContent=p.lora_rssi_dbm==null?nf('lora_rssi_dbm','Not in telemetry'):`${linkQuality(p.lora_rssi_dbm)} · ${sc==null?'--':fx(sc,1)+' %'} packets`;
+  tileState('tileSolar',['solar_voltage_v','solar_current_ma'],st);
+  tileState('tileBat',['battery_voltage_v','battery_current_ma'],st);
+  tileState('tilePem',['pem_voltage_v','pem_current_ma'],st);
+  tileState('tileLoad',['load_voltage_v','load_current_ma'],st);
+  tileState('tileTemp',['temperature_c'],st);
+  tileState('tileRadio',['lora_rssi_dbm','packet_success_pct'],st);
+  spark('kSolar','_solarP','--solar');spark('kBat','battery_voltage_v','--bat');spark('kPem','_pemP','--pem');
+  spark('kLoad','_loadP','--load');spark('kTemp','temperature_c','--temp');spark('kRssi','lora_rssi_dbm','--ok');
+}
+
+/* ---------- canvas helpers ---------- */
+function prep(c){const r=c.getBoundingClientRect(),dpr=window.devicePixelRatio||1,w=Math.max(1,Math.round(r.width*dpr)),h=Math.max(1,Math.round(r.height*dpr));if(c.width!==w||c.height!==h){c.width=w;c.height=h;}const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,r.width,r.height);return{x,W:r.width,H:r.height};}
+const get=(p,k)=>p[k]==null?null:p[k];
+function spark(id,key,tok){
+  const c=$(id); const {x,W,H}=prep(c); const data=S.samples.slice(-60).map(p=>get(p,key)); const vals=data.filter(v=>v!=null);
+  if(vals.length<2)return;
+  let lo=Math.min(...vals),hi=Math.max(...vals); if(hi-lo<1e-6){lo-=1;hi+=1;}
+  const X=i=>2+(W-6)*i/(data.length-1), Y=v=>H-3-(v-lo)/(hi-lo)*(H-7);
+  x.strokeStyle=css(tok); x.lineWidth=1.5; x.lineJoin='round'; x.beginPath(); let on=false,li=-1;
+  data.forEach((v,i)=>{if(v==null){on=false;return;} on?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)); on=true; li=i;}); x.stroke();
+  if(li>=0){x.fillStyle=css(tok);x.beginPath();x.arc(X(li),Y(data[li]),2.4,0,7);x.fill();}
+}
+
+/* ---------- time-based charts ---------- */
+const CHARTS=[
+  {id:'pPower',unit:'mW',d:0,series:[['Solar','_solarP','--solar'],['PEM','_pemP','--pem'],['Load','_loadP','--load']],zero:true},
+  {id:'pVolt',unit:'V',d:2,series:[['Solar','solar_voltage_v','--solar'],['Battery','battery_voltage_v','--bat'],['Load bus','load_voltage_v','--load'],['PEM','pem_voltage_v','--pem']],thr:[[3.5,'--warn'],[3.3,'--bad']],zero:true},
+  {id:'pTemp',unit:'°C',d:1,fill:true,series:[['Board','temperature_c','--temp']],thr:[[40,'--warn'],[45,'--bad']]},
+  {id:'pRssi',unit:'dBm',d:0,fill:true,series:[['RSSI','lora_rssi_dbm','--pem']],thr:[[-105,'--warn'],[-115,'--bad']]}
+];
+function niceTicks(lo,hi,n){const span=hi-lo,step0=span/n,mag=Math.pow(10,Math.floor(Math.log10(step0))),err=step0/mag,step=(err>=7.5?10:err>=3.5?5:err>=1.5?2:1)*mag;const out=[];for(let v=Math.ceil(lo/step)*step;v<=hi+1e-9;v+=step)out.push(+v.toFixed(10));return out;}
+function median(a){if(!a.length)return 1000;const s=a.slice().sort((x,y)=>x-y);return s[s.length>>1];}
+const TSTEPS=[1,2,5,10,15,30,60,120,300,600,900,1800,3600,7200,14400,43200,86400].map(s=>s*1000);
+function windowOf(){const t1=Date.now();let t0=S.range?t1-S.range*1000:(S.samples.length?S.samples[0]._at:t1-60000);if(t1-t0<10000)t0=t1-10000;return [t0,t1];}
+function drawChart(cfg){
+  const box=$(cfg.id),c=box.querySelector('canvas'),{x,W,H}=prep(c);
+  const [t0,t1]=windowOf();
+  const data=S.samples.filter(p=>p._at>=t0-1000);
+  x.font='11px '+(css('--f-mono')||'monospace'); x.textBaseline='middle';
+  const vals=[];cfg.series.forEach(s=>data.forEach(p=>{const v=get(p,s[1]);if(v!=null)vals.push(v);}));
+  if(!vals.length){x.fillStyle=css('--muted');x.textAlign='center';x.font='12px '+(css('--f-body')||'sans-serif');x.fillText(S.samples.length?'No samples in this time window':'No samples for these channels yet',W/2,H/2);cfg.geom=null;return;}
+  (cfg.thr||[]).forEach(t=>vals.push(t[0]));
+  let lo=Math.min(...vals),hi=Math.max(...vals);
+  if(hi-lo<1e-6){const pad=Math.abs(hi)*.1||1;lo-=pad;hi+=pad;}else{const pad=(hi-lo)*.08;lo-=pad;hi+=pad;}
+  if(cfg.zero&&lo<0&&Math.min(...vals)>=0)lo=0;
+  const ticks=niceTicks(lo,hi,4); lo=Math.min(lo,ticks[0]); hi=Math.max(hi,ticks[ticks.length-1]);
+  const fmtT=v=>Math.abs(hi-lo)<4?v.toFixed(1):v.toFixed(0);
+  let left=8; ticks.forEach(t=>{left=Math.max(left,x.measureText(fmtT(t)).width);}); left+=12;
+  const right=12,top=10,bot=20,pw=W-left-right,ph=H-top-bot;
+  const X=t=>left+(t-t0)/(t1-t0)*pw, Y=v=>top+ph-(v-lo)/(hi-lo)*ph;
+  const dts=[];for(let i=1;i<data.length;i++)dts.push(data[i]._at-data[i-1]._at);
+  const gap=Math.max(STALE_S*1000,3*median(dts));
+  x.save();x.beginPath();x.rect(left,top-2,pw,ph+4);x.clip();
+  // eclipse shading
+  x.fillStyle=css('--shade');
+  for(let i=0;i<data.length;i++){if(!isEcl(data[i]))continue;const a=data[i]._at,nx=data[i+1]?data[i+1]._at:Math.min(t1,a+median(dts));if(nx-a>gap)continue;const xa=X(a),xb=X(nx);x.fillRect(xa,top,Math.max(1,xb-xa),ph);}
+  x.restore();
+  // grid + y labels
+  x.strokeStyle=css('--line-soft');x.lineWidth=1;x.fillStyle=css('--muted');x.textAlign='right';
+  ticks.forEach(t=>{const y=Math.round(Y(t))+.5;x.beginPath();x.moveTo(left,y);x.lineTo(left+pw,y);x.stroke();x.fillText(fmtT(t),left-6,y);});
+  // time axis
+  const lw=x.measureText('00:00:00').width+16, maxT=Math.max(2,Math.floor(pw/lw));
+  const step=TSTEPS.find(s=>(t1-t0)/s<=maxT)||TSTEPS[TSTEPS.length-1];
+  x.textAlign='center';
+  for(let t=Math.ceil(t0/step)*step;t<=t1;t+=step){const xx=X(t);if(xx<left+lw/2-8||xx>left+pw-lw/2+8)continue;x.fillText(gst(t),xx,H-7);x.beginPath();x.moveTo(Math.round(xx)+.5,top+ph);x.lineTo(Math.round(xx)+.5,top+ph+4);x.stroke();}
+  x.save();x.beginPath();x.rect(left,top-2,pw,ph+4);x.clip();
+  // threshold lines
+  (cfg.thr||[]).forEach(([v,tok])=>{const y=Math.round(Y(v))+.5;x.strokeStyle=css(tok);x.setLineDash([5,4]);x.lineWidth=1.2;x.beginPath();x.moveTo(left,y);x.lineTo(left+pw,y);x.stroke();x.setLineDash([]);});
+  // event marks
+  x.font='10px '+(css('--f-body')||'sans-serif');x.textAlign='left';
+  S.marks.forEach(m=>{if(m.t<t0||m.t>t1)return;const xx=Math.round(X(m.t))+.5;x.strokeStyle=css(m.level==='bad'?'--bad':m.level==='warn'?'--warn':'--faint');x.setLineDash([2,3]);x.beginPath();x.moveTo(xx,top);x.lineTo(xx,top+ph);x.stroke();x.setLineDash([]);x.fillStyle=css('--muted');const lab=m.label.slice(0,20);if(xx>left+pw-x.measureText(lab).width-8){x.textAlign='right';x.fillText(lab,xx-3,top+6);x.textAlign='left';}else x.fillText(lab,xx+3,top+6);});
+  // series
+  cfg.series.forEach(s=>{
+    const col=css(s[2]); const pts=[];
+    data.forEach((p,i)=>{const v=get(p,s[1]);const brk=i>0&&p._at-data[i-1]._at>gap;if(brk)pts.push(null);pts.push(v==null?null:[X(p._at),Y(v)]);});
+    if(cfg.fill){
+      x.save();const g=x.createLinearGradient(0,top,0,top+ph);
+      try{g.addColorStop(0,col+'40');g.addColorStop(1,col+'00');}catch(e){g.addColorStop(0,'rgba(128,128,128,.2)');g.addColorStop(1,'rgba(128,128,128,0)');}
+      x.fillStyle=g;let run=[];const flush=()=>{if(run.length>1){x.beginPath();x.moveTo(run[0][0],top+ph);run.forEach(q=>x.lineTo(q[0],q[1]));x.lineTo(run[run.length-1][0],top+ph);x.closePath();x.fill();}run=[];};
+      pts.forEach(q=>{if(q)run.push(q);else flush();});flush();x.restore();
+    }
+    x.strokeStyle=col;x.lineWidth=2;x.lineJoin='round';x.lineCap='round';x.beginPath();let on=false,lastQ=null;
+    pts.forEach(q=>{if(!q){on=false;return;}on?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]);on=true;lastQ=q;});x.stroke();
+    if(lastQ){x.fillStyle=col;x.beginPath();x.arc(lastQ[0],lastQ[1],3.2,0,7);x.fill();}
+  });
+  x.restore();
+  cfg.geom={left,pw,top,ph,t0,t1,data,X,Y};
+  if(cfg.hover){const p=cfg.hover,hx=Math.round(X(p._at))+.5;x.strokeStyle=css('--muted');x.lineWidth=1;x.beginPath();x.moveTo(hx,top);x.lineTo(hx,top+ph);x.stroke();
+    cfg.series.forEach(s=>{const v=get(p,s[1]);if(v==null)return;x.fillStyle=css(s[2]);x.beginPath();x.arc(hx,Y(v),3.5,0,7);x.fill();});}
+}
+CHARTS.forEach(cfg=>{
+  const box=$(cfg.id); const tt=document.createElement('div'); tt.className='tt'; tt.hidden=true; box.append(tt);
+  box.addEventListener('pointermove',ev=>{
+    const g=cfg.geom; if(!g||!g.data.length){tt.hidden=true;return;}
+    const r=box.getBoundingClientRect(),mx=ev.clientX-r.left, t=g.t0+(mx-g.left)/g.pw*(g.t1-g.t0);
+    let best=null,bd=Infinity; g.data.forEach(p=>{const d=Math.abs(p._at-t);if(d<bd){bd=d;best=p;}});
+    if(!best||Math.abs(g.X(best._at)-mx)>40){cfg.hover=null;tt.hidden=true;drawChart(cfg);return;}
+    cfg.hover=best; drawChart(cfg);
+    const h=document.createElement('div');h.className='h';
+    h.textContent=(best.packet_id!=null?'#'+best.packet_id+' · ':'')+gst(best._at)+' GST'+(isEcl(best)?' · eclipse':'');
+    const rows=cfg.series.map(s=>{const d=document.createElement('div');const sw=document.createElement('i');sw.style.background=css(s[2]);const v=get(best,s[1]);const t2=document.createElement('span');t2.textContent=`${s[0]} ${v==null?'--':v.toFixed(cfg.d)} ${cfg.unit}`;d.append(sw,t2);return d;});
+    tt.replaceChildren(h,...rows); tt.hidden=false;
+    let lx=mx+12; if(lx+tt.offsetWidth>r.width)lx=mx-tt.offsetWidth-12; tt.style.left=Math.max(0,lx)+'px'; tt.style.top='6px';
+  });
+  box.addEventListener('pointerleave',()=>{cfg.hover=null;tt.hidden=true;drawChart(cfg);});
+});
+document.querySelectorAll('#rangeSeg button').forEach(b=>b.addEventListener('click',()=>{S.range=Number(b.dataset.range);document.querySelectorAll('#rangeSeg button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));CHARTS.forEach(drawChart);}));
+
+/* ---------- orbit ---------- */
+const SVGNS='http://www.w3.org/2000/svg';
+function el(tag,attrs,parent){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.append(e);return e;}
+const O={};
+function buildOrbit(){
+  const s=$('orbitSvg'); s.replaceChildren();
+  const cx=135,cy=100,R=72,er=30;
+  el('rect',{x:0,y:0,width:240,height:200,rx:10,fill:'var(--space)'},s);
+  for(let i=0;i<5;i++)el('line',{x1:0,y1:cy-40+i*20,x2:cx-er-6,y2:cy-40+i*20,stroke:'var(--sunray)','stroke-width':6,'stroke-linecap':'round'},s);
+  const a=ECL_HALF*Math.PI/180;
+  el('path',{d:`M${cx},${cy-er} L${cx+R*Math.cos(a)+40},${cy-R*Math.sin(a)-18} L240,${cy-R*Math.sin(a)-18} L240,${cy+R*Math.sin(a)+18} L${cx+R*Math.cos(a)+40},${cy+R*Math.sin(a)+18} L${cx},${cy+er} Z`,fill:'var(--umbra)'},s);
+  el('circle',{cx,cy,r:R,fill:'none',stroke:'var(--line)','stroke-width':1.5,'stroke-dasharray':'2 4'},s);
+  const p1=[cx+R*Math.cos(a),cy-R*Math.sin(a)],p2=[cx+R*Math.cos(a),cy+R*Math.sin(a)];
+  el('path',{d:`M${p1[0]},${p1[1]} A${R},${R} 0 0 1 ${p2[0]},${p2[1]}`,fill:'none',stroke:'var(--pem)','stroke-width':3,'stroke-linecap':'round',opacity:.85},s);
+  el('path',{d:`M${p2[0]},${p2[1]} A${R},${R} 0 1 1 ${p1[0]},${p1[1]}`,fill:'none',stroke:'var(--solar)','stroke-width':3,'stroke-linecap':'round',opacity:.85},s);
+  el('circle',{cx,cy,r:er,fill:'var(--earth)',stroke:'var(--line)'},s);
+  el('path',{d:`M${cx},${cy-er} A${er},${er} 0 0 1 ${cx},${cy+er} Z`,fill:'var(--umbra)'},s);
+  el('circle',{cx:16,cy:24,r:8,fill:'var(--solar)'},s);
+  const t1=el('text',{x:30,y:28,'font-size':10,fill:'var(--muted)','font-family':'var(--f-mono)'},s); t1.textContent='SUN';
+  const t2=el('text',{x:236,y:194,'text-anchor':'end','font-size':10,fill:'var(--muted)','font-family':'var(--f-mono)'},s); t2.textContent='UMBRA';
+  O.sat=el('g',{},s);
+  el('circle',{r:9,fill:'var(--fg)',opacity:.12},O.sat);
+  el('rect',{x:-3.5,y:-3.5,width:7,height:7,rx:1,fill:'var(--fg)'},O.sat);
+  el('rect',{x:-11,y:-2,width:6,height:4,fill:'var(--solar)'},O.sat);
+  el('rect',{x:5,y:-2,width:6,height:4,fill:'var(--solar)'},O.sat);
+  O.cx=cx;O.cy=cy;O.R=R;
+  O.none=el('text',{x:cx,y:cy+R+18,'text-anchor':'middle','font-size':10,fill:'var(--muted)'},s); O.none.textContent='Position not in telemetry';
+}
+function renderOrbit(){
+  const p=S.last; const ph=p&&p.orbit_phase_deg!=null?p.orbit_phase_deg:null;
+  $('modeText').textContent=p&&p.operating_mode?p.operating_mode.replace(/_/g,' '):'--';
+  $('modeText').style.color=p?(isEcl(p)?'var(--pem)':/SUN/i.test(p.operating_mode||'')?'var(--solar)':'var(--fg)'):'var(--muted)';
+  if(ph==null){O.sat.setAttribute('visibility','hidden');O.none.setAttribute('visibility','visible');$('phaseVal').textContent='--';$('nextVal').textContent='--';$('nextLabel').textContent='Next eclipse';return;}
+  O.none.setAttribute('visibility','hidden');O.sat.setAttribute('visibility','visible');
+  const r=ph*Math.PI/180; O.sat.setAttribute('transform',`translate(${(O.cx+O.R*Math.cos(r)).toFixed(1)},${(O.cy-O.R*Math.sin(r)).toFixed(1)}) rotate(${(-ph+90).toFixed(1)})`);
+  $('phaseVal').textContent=`${ph.toFixed(0)}°`;
+  const w=((ph%360)+360)%360, inE=w<ECL_HALF||w>360-ECL_HALF;
+  const target=inE?ECL_HALF:360-ECL_HALF; let d=target-w; if(d<0)d+=360;
+  const mins=d/360*ORBIT; $('nextLabel').textContent=inE?'Sunrise in':'Next eclipse in';
+  $('nextVal').textContent=`${Math.floor(mins)}m ${String(Math.round((mins%1)*60)).padStart(2,'0')}s`;
+}
+
+/* ---------- power flow ---------- */
+const F={W:0};
+function buildFlow(){
+  const box=$('flowBox'),W=Math.max(320,Math.round(box.clientWidth)),H=320; F.W=W;
+  const s=$('flowSvg'); s.replaceChildren(); s.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const narrow=W<520;
+  const ys=[60,160,260], nodeX=26, labX=54, diodeX=Math.round(W*(narrow?.54:.5)), busX=Math.round(W*(narrow?.7:.66)), loadX0=Math.round(W*(narrow?.78:.76)), loadX1=W-4, yMid=160;
+  F.rows=[];
+  const defs=[{name:'Solar panel',box:'REG',icon:'sun'},{name:'Battery 3.7 V',box:null,icon:'bat'},{name:'PEM fuel cell',box:'DC-DC',icon:'h2'}];
+  el('line',{x1:busX,x2:busX,y1:ys[0]-20,y2:ys[2]+20,stroke:'var(--fg)','stroke-width':5,'stroke-linecap':'round'},s);
+  F.busLabel=el('text',{x:busX,y:ys[0]-32,'text-anchor':'middle','font-size':11,fill:'var(--muted)','font-family':'var(--f-mono)'},s);
+  defs.forEach((d,i)=>{
+    const y=ys[i],g=el('g',{},s),x0=nodeX+21;
+    const base=el('path',{d:`M${x0},${y}H${busX}`,fill:'none'},g);
+    const flow=el('path',{d:`M${x0},${y}H${busX}`,fill:'none','stroke-dasharray':'6 8','stroke-linecap':'round',class:'fl'},g);
+    if(d.box){const bx=Math.round((labX+diodeX)/2+(narrow?14:24));el('rect',{x:bx-19,y:y-9,width:38,height:18,rx:3,fill:'var(--panel)',stroke:'var(--line)'},g);const t=el('text',{x:bx,y:y+3.5,'text-anchor':'middle','font-size':9,fill:'var(--muted)','font-family':'var(--f-mono)'},g);t.textContent=d.box;}
+    el('path',{d:`M${diodeX-7},${y-7}L${diodeX+5},${y}L${diodeX-7},${y+7}Z`,fill:'var(--panel)',stroke:'var(--fg)','stroke-width':1.4,'stroke-linejoin':'round'},g);
+    el('line',{x1:diodeX+5,x2:diodeX+5,y1:y-7,y2:y+7,stroke:'var(--fg)','stroke-width':1.7},g);
+    if(i===0){const t=el('text',{x:diodeX,y:y+22,'text-anchor':'middle','font-size':9,fill:'var(--muted)','font-family':'var(--f-mono)'},g);t.textContent='1N5819G';}
+    const ring=el('circle',{cx:nodeX,cy:y,r:20,fill:'var(--panel-2)','stroke-width':2},g);
+    const ic=el('g',{},g);
+    if(d.icon==='sun'){el('circle',{cx:nodeX,cy:y,r:5},ic);for(let k=0;k<8;k++){const a=k*Math.PI/4;el('line',{x1:nodeX+Math.cos(a)*8,y1:y+Math.sin(a)*8,x2:nodeX+Math.cos(a)*11.5,y2:y+Math.sin(a)*11.5,'stroke-width':1.6,'stroke-linecap':'round'},ic);}}
+    else if(d.icon==='bat'){el('rect',{x:nodeX-8,y:y-5,width:14,height:10,rx:2,fill:'none','stroke-width':1.6},ic);el('rect',{x:nodeX+6.5,y:y-2,width:2.5,height:4},ic);}
+    else{const t=el('text',{x:nodeX,y:y+4,'text-anchor':'middle','font-size':11,'font-weight':600,'font-family':'var(--f-display)'},ic);t.textContent='H₂';}
+    const nm=el('text',{x:labX,y:y-13,'font-size':12,'font-weight':600,fill:'var(--fg)'},g); nm.textContent=d.name;
+    const sub=el('text',{x:labX,y:y+24,'font-size':10.5,fill:'var(--muted)','font-family':'var(--f-mono)'},g);
+    const cur=el('text',{x:busX-10,y:y-12,'text-anchor':'end','font-size':12,'font-weight':600,'font-family':'var(--f-mono)'},g);
+    const hit=el('line',{x1:x0,x2:busX,y1:y,y2:y,stroke:'transparent','stroke-width':34},g);
+    F.rows.push({d,base,flow,ring,ic,sub,cur,hit,y});
+  });
+  const lb=el('path',{d:`M${busX},${yMid}H${loadX0}`,fill:'none',stroke:'var(--fg)','stroke-opacity':.2},s);
+  const lf=el('path',{d:`M${busX},${yMid}H${loadX0}`,fill:'none',stroke:'var(--fg)','stroke-dasharray':'6 8','stroke-linecap':'round',class:'fl'},s);
+  const bw=loadX1-loadX0,cx=loadX0+bw/2;
+  el('rect',{x:loadX0,y:yMid-52,width:bw,height:104,rx:10,fill:'var(--panel-2)',stroke:'var(--fg)','stroke-width':1.5},s);
+  const t1=el('text',{x:cx,y:yMid-30,'text-anchor':'middle','font-size':10.5,fill:'var(--muted)','letter-spacing':'.08em'},s);t1.textContent='LOAD';
+  F.loadVal=el('text',{x:cx,y:yMid+4,'text-anchor':'middle','font-size':narrow?20:26,'font-family':'var(--f-display)','font-weight':500,fill:'var(--fg)'},s);
+  F.loadUnit=el('text',{x:cx,y:yMid+24,'text-anchor':'middle','font-size':10.5,fill:'var(--muted)','font-family':'var(--f-mono)'},s);
+  F.loadSub=el('text',{x:cx,y:yMid+40,'text-anchor':'middle','font-size':10,fill:'var(--muted)','font-family':'var(--f-mono)'},s);
+  const hitL=el('rect',{x:loadX0,y:yMid-52,width:bw,height:104,fill:'transparent'},s);
+  F.load={lb,lf};
+  let tt=$('flowBox').querySelector('.tt'); if(!tt){tt=document.createElement('div');tt.className='tt';tt.hidden=true;$('flowBox').append(tt);}
+  const show=(ev,head,lines)=>{const r=$('flowBox').getBoundingClientRect();const h=document.createElement('div');h.className='h';h.textContent=head;tt.replaceChildren(h,...lines.map(l=>{const d=document.createElement('div');d.textContent=l;return d;}));tt.hidden=false;let x=ev.clientX-r.left+12,y=ev.clientY-r.top+12;if(x+tt.offsetWidth>r.width)x=ev.clientX-r.left-tt.offsetWidth-12;if(y+tt.offsetHeight>r.height)y=ev.clientY-r.top-tt.offsetHeight-12;tt.style.left=Math.max(0,x)+'px';tt.style.top=Math.max(0,y)+'px';};
+  F.rows.forEach((row,i)=>{row.hit.addEventListener('pointermove',ev=>show(ev,row.d.name,F.info[i]||['No data']));row.hit.addEventListener('pointerleave',()=>tt.hidden=true);});
+  hitL.addEventListener('pointermove',ev=>show(ev,'Load branch',F.info[3]||['No data']));hitL.addEventListener('pointerleave',()=>tt.hidden=true);
+  F.dur={};
+  renderFlow();
+}
+const widthOf=c=>c>0?2+Math.min(c,120)/100*9:1.5;
+const durOf=c=>(2.6-Math.min(Math.abs(c),100)/100*1.9).toFixed(1)+'s';
+function setFlow(path,base,c,tok,key){
+  const has=c!=null, act=has&&Math.abs(c)>0.5;
+  base.setAttribute('stroke',act?`var(${tok})`:'var(--faint)');
+  base.setAttribute('stroke-width',widthOf(has?Math.abs(c):0));
+  if(has)base.removeAttribute('stroke-dasharray');else base.setAttribute('stroke-dasharray','3 5');
+  base.setAttribute('stroke-opacity',act?.22:has?.6:.8);
+  path.setAttribute('visibility',act?'visible':'hidden');
+  if(act){path.setAttribute('stroke',`var(${tok})`);path.setAttribute('stroke-width',widthOf(Math.abs(c)));const d=durOf(c);if(F.dur[key]!==d){path.style.animationDuration=d;F.dur[key]=d;}path.classList.toggle('rev',c<0);}
+}
+function renderFlow(){
+  if(!F.rows)return;
+  const p=S.last||{};
+  F.busLabel.textContent=`BUS ${p.load_voltage_v==null?'--':fx(p.load_voltage_v,2)+' V'}`;
+  const spec=[
+    {I:p.solar_current_ma,V:p.solar_voltage_v,P:p._solarP,tok:'--solar'},
+    {I:p.battery_current_ma,V:p.battery_voltage_v,P:mul(p.battery_voltage_v,p.battery_current_ma),tok:'--bat'},
+    {I:p.pem_current_ma,V:p.pem_voltage_v,P:p._pemP,tok:'--pem'}];
+  F.info=[];
+  F.rows.forEach((row,i)=>{
+    const s=spec[i],has=s.I!=null,act=has&&Math.abs(s.I)>0.5;
+    setFlow(row.flow,row.base,s.I,s.tok,'r'+i);
+    row.ring.setAttribute('stroke',act?`var(${s.tok})`:'var(--faint)');
+    row.ic.setAttribute('fill',act?`var(${s.tok})`:'var(--faint)');row.ic.setAttribute('stroke',act?`var(${s.tok})`:'var(--faint)');
+    if(i===1)row.ic.querySelector('rect').setAttribute('fill','none');
+    row.sub.textContent=s.V==null&&s.I==null?'not in telemetry':`${fx(s.V,2)} V${s.P!=null?' · '+fx(Math.abs(s.P),0)+' mW':''}`;
+    row.cur.textContent=!has?'-- mA':i===1&&s.I<-0.5?`${fx(-s.I,1)} mA ←`:act?`${fx(Math.abs(s.I),1)} mA`:'idle';
+    row.cur.setAttribute('fill',act?'var(--fg)':'var(--muted)');
+    const share=has&&p.load_current_ma?` · ${(Math.abs(s.I)/p.load_current_ma*100).toFixed(0)}% of load current`:'';
+    F.info.push(!has?['Current not in telemetry']:[i===1?(s.I>=0?`Discharging ${fx(s.I,1)} mA`:`Charging ${fx(-s.I,1)} mA`):`${fx(s.I,1)} mA${share}`,`${fx(s.V,2)} V${s.P!=null?' · '+fx(Math.abs(s.P),0)+' mW':''}`]);
+  });
+  const lc=p.load_current_ma;
+  setFlow(F.load.lf,F.load.lb,lc,'--fg','load');
+  F.loadVal.textContent=lc==null?'--':fx(lc,1); F.loadUnit.textContent='mA';
+  F.loadSub.textContent=p._loadP==null?'':`${fx(p._loadP,0)} mW`;
+  F.info.push(lc==null?['Load current not in telemetry']:[`${fx(lc,1)} mA at ${fx(p.load_voltage_v,2)} V`,`${fx(p._loadP,0)} mW`]);
+}
+
+/* ---------- limits table / link chain / events / inspector ---------- */
+const COV=['solar_voltage_v','solar_current_ma','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','load_voltage_v','load_current_ma','temperature_c','lora_rssi_dbm','packet_success_pct'];
+function limText(D){const w=D.warn||{},c=D.crit||{};const part=(o)=>[o.lo!=null?'<'+o.lo:null,o.hi!=null?'>'+o.hi:null].filter(Boolean).join(' ');const a=part(w),b=part(c);return a||b?`${a||'—'} / ${b||'—'}`:'—';}
+function renderCoverage(){
+  const p=S.last||{_failed:[]}, st=channelStates(), body=$('covBody'), stale=isStale();
+  body.replaceChildren();
+  COV.forEach(k=>{
+    const D=DICT[k], tr=document.createElement('tr');
+    let v=p[k]; if(k==='packet_success_pct'&&v==null&&S.samples.length>=20)v=successPct();
+    const a=document.createElement('td');a.textContent=D.label;
+    const b=document.createElement('td');b.className='v';b.textContent=(p._failed||[]).includes(k)?'null':v==null?'--':`${v.toFixed(D.d)} ${D.unit}`;
+    const c=document.createElement('td');const ch=document.createElement('span');
+    const s=st[k]; let lvl=s.lvl; if(stale&&lvl!=='none')lvl='stale';
+    ch.className='chip '+lvl;ch.textContent=lvl==='none'?((p._failed||[]).includes(k)?'Sensor fault':'Not sent'):LVLTXT[lvl];ch.title=s.why||'';
+    c.append(ch);
+    if(lvl!=='none'&&isSim(p)){const sm=document.createElement('span');sm.className='chip sim';sm.textContent='Sim';sm.style.marginLeft='4px';c.append(sm);}
+    const l=document.createElement('td');l.className='lim';l.textContent=limText(D);
+    const e=document.createElement('td');e.className='age';e.textContent=S.seen[k]?ago(Date.now()-S.seen[k]):'—';
+    tr.append(a,b,c,l,e); body.append(tr);
+  });
+  const br=['solar_current_ma','battery_current_ma','pem_current_ma','load_current_ma'].filter(k=>p[k]!=null);
+  const w=$('branchWarn');
+  if(br.length>1){w.hidden=false;$('branchText').textContent=isSim(p)?`The simulation shows ${br.length} branch currents from the Multisim model. The planned board lists one INA219, which measures one shunt branch at a time, so live packets should only carry the branch it is wired to.`:`This packet carries ${br.length} branch currents. The component list has one INA219; make sure each value has its own sensor before reporting it.`;}
+  else w.hidden=true;
+}
+function stage(n,cls,label,text){const s=document.querySelector(`[data-stage="${n}"]`);s.className='stage '+cls;if(label)s.querySelector('b').textContent=label;s.querySelector('em').textContent=text;}
+function renderHealthPanel(){
+  const a=ageMs(), fresh=a!=null&&a<=STALE_S*1000;
+  if(S.mode==='live'){
+    const m=S.mqtt, pubFresh=m.pub&&Date.now()-m.pubAt<36e5;
+    stage(1,fresh?'on':a!=null?'warn':'','ESP32-WROOM-32',a==null?'No packets':fresh?'Sending':'Silent '+ago(a).replace(' ago',''));
+    stage(2,m.pub==='online'?'on':m.pub==='offline'?'bad':'','Publisher',m.pub==='online'?'Online':m.pub==='offline'?'Offline':'Unknown');
+    stage(3,m.state==='connected'?'on':m.state==='connecting'||m.state==='reconnecting'?'warn':'bad','MQTT broker',{connected:'Connected',connecting:'Connecting',reconnecting:'Reconnecting',offline:'Offline',error:'Error',idle:'Idle',nolib:'Library blocked'}[m.state]||m.state);
+  }else if(S.mode==='local'){
+    stage(1,fresh?'on':a!=null?'warn':'','ESP32-WROOM-32',a==null?'No packets':fresh?'Sending':'Silent');
+    stage(2,S.local.serial===true?'on':S.local.serial===false?'warn':'','USB serial',S.local.serial===true?(S.local.port||'Ready'):S.local.serial===false?'No port':'Unknown');
+    stage(3,S.local.open?'on':S.local.tried?'bad':'','Python bridge',S.local.open?'Connected':S.local.tried?'Offline':'Idle');
+  }else{const t=S.mode==='demo'?'Simulated':'Replay';stage(1,'off','ESP32-WROOM-32',t);stage(2,'off','Publisher',t);stage(3,'off','MQTT broker',t);}
+  $('hRecv').textContent=S.ids.recv; $('hLost').textContent=S.ids.lost;
+  const sc=successPct(); $('hSucc').textContent=sc==null?'--':fx(sc,1)+' %';
+  $('hId').textContent=S.ids.last==null?'--':'#'+S.ids.last;
+  $('hDev').textContent=S.last&&S.last.device_id?S.last.device_id:'--';
+  $('hTsrc').textContent=S.last&&S.last.telemetry_source?S.last.telemetry_source:'--';
+}
+function renderEvents(){
+  const ul=$('events'); ul.replaceChildren();
+  const list=S.evFilter==='all'?S.events:S.events.filter(e=>e.level==='warn'||e.level==='bad');
+  $('evCount').textContent=S.events.filter(e=>e.level==='warn'||e.level==='bad').length;
+  if(!list.length){const li=document.createElement('li');li.className='empty';li.textContent=S.evFilter==='all'?'No events yet.':'No alerts.';ul.append(li);return;}
+  list.forEach(e=>{const li=document.createElement('li');const t=document.createElement('time');t.textContent=e.t;const c=document.createElement('span');
+    c.className='chip '+({info:'mute',ok:'ok',warn:'warn',bad:'bad'}[e.level]||'mute');c.textContent={info:'Info',ok:'OK',warn:'Warning',bad:'Critical'}[e.level]||e.level;
+    const m=document.createElement('p');m.textContent=e.msg;li.append(t,c,m);ul.append(li);});
+}
+function renderInspector(){if(S.lastRaw)$('rawPacket').textContent=JSON.stringify(S.lastRaw,null,1);}
+function render(){renderStatus();renderHealth();renderTiles();renderOrbit();renderFlow();CHARTS.forEach(drawChart);renderCoverage();renderHealthPanel();renderInspector();}
+
+/* ---------- demo generator: Multisim model through a simulated orbit, with fault injection ---------- */
+const rnd=()=>Math.random()-.5, r2=(v,d)=>+v.toFixed(d);
+function demoPacket(){
+  const D=S.demo,F2=D.f; D.min=(D.min+1)%ORBIT; const ang=D.min/ORBIT*360;
+  const w=((ang%360)+360)%360, fromShadow=Math.min(Math.abs(w),Math.abs(360-w));
+  const s=Math.max(0,Math.min(1,(fromShadow-ECL_HALF)/6+.5));
+  if(Math.random()<.02)D.id++;
+  D.id++;
+  if(s<.5)D.drift=Math.min(.12,D.drift+.0022);else D.drift=Math.max(0,D.drift-.004);
+  D.warm+=(s-D.warm)*.09;
+  if(F2.draining)F2.drain=Math.min(.75,F2.drain+.012);
+  F2.spike*=.975;
+  const batI=81.5-76.3*s+rnd()*.8;
+  return{
+    device_id:'ku-siraj-1-sim',packet_id:D.id,timestamp:new Date().toISOString(),telemetry_source:'Browser simulation · Multisim model',
+    operating_mode:s>=.5?'SUNLIGHT':'ECLIPSE',orbit_phase_deg:r2(ang,1),
+    solar_voltage_v:r2(s>.02?4.98*Math.min(1,s*2.5)+rnd()*.03:0,2),solar_current_ma:r2(Math.max(0,79.6*s+rnd()*.8),1),
+    battery_voltage_v:r2(3.86-.0009*batI-D.drift-F2.drain+rnd()*.004,3),battery_current_ma:r2(batI,1),
+    pem_voltage_v:r2(.6+rnd()*.01,3),pem_current_ma:r2(75+rnd()*2,1),
+    load_voltage_v:r2(3.41+.11*s+rnd()*.006,3),load_current_ma:r2(94.8+2.8*s+rnd()*.6,1),
+    temperature_c:F2.sensor?null:r2(17+13*D.warm+F2.spike+rnd()*.3,1),lora_rssi_dbm:Math.round(-86+8*Math.sin(D.id/11)+rnd()*4),
+    simulated:true};
+}
+function demoStep(){const pk=demoPacket();if(Date.now()<S.demo.f.linkUntil){renderStatus();return;}ingest(pk,'demo');}
+function demoStart(){
+  demoStop(); S.demo.paused=false; $('demoPause').textContent='Pause';
+  if(!S.samples.length){const n=150,now=Date.now();for(let i=0;i<n;i++){const pk=demoPacket();pk.timestamp=new Date(now-(n-i)*1000).toISOString();ingest(pk,'demo',{quiet:true,at:now-(n-i)*1000});}render();}
+  S.demo.timer=setInterval(demoStep,1000/Number($('demoSpeed').value));
+}
+function demoStop(){if(S.demo.timer){clearInterval(S.demo.timer);S.demo.timer=null;}}
+$('demoPause').addEventListener('click',()=>{if(S.mode!=='demo')return;if(S.demo.paused){demoStart();log('info','Simulation resumed.');}else{demoStop();S.demo.paused=true;$('demoPause').textContent='Resume';log('info','Simulation paused.');render();}});
+$('demoSpeed').addEventListener('change',()=>{if(S.mode==='demo'&&!S.demo.paused)demoStart();});
+
+function syncFaultButtons(){const f=S.demo.f;const on={drain:f.draining,spike:f.spike>1,link:Date.now()<f.linkUntil,sensor:f.sensor};document.querySelectorAll('[data-fault]').forEach(b=>b.setAttribute('aria-pressed',String(!!on[b.dataset.fault])));}
+document.querySelectorAll('[data-fault]').forEach(b=>b.addEventListener('click',()=>{
+  if(S.mode!=='demo'){S.fallback=false;setMode('demo');}
+  if(S.demo.paused)demoStart();
+  const f=S.demo.f,k=b.dataset.fault;
+  if(k==='drain'){f.draining=!f.draining;if(f.draining){log('info','Fault injected: battery falling 0.012 V per packet.');mark('Fault: battery falling','warn');}else log('info','Battery drain stopped.');}
+  if(k==='spike'){f.spike=35;log('info','Fault injected: +35 °C temperature spike.');mark('Fault: temp spike','warn');}
+  if(k==='link'){f.linkUntil=Date.now()+12000;log('info','Fault injected: link lost for 12 s. Packets keep counting, so the gap shows as missing IDs.');mark('Fault: link lost','warn');}
+  if(k==='sensor'){f.sensor=!f.sensor;if(f.sensor){log('info','Fault injected: temperature sensor sends null.');mark('Fault: sensor null','warn');}else log('info','Temperature sensor restored.');}
+  syncFaultButtons();
+}));
+$('faultClear').addEventListener('click',()=>{const f=S.demo.f;f.draining=false;f.drain=0;f.spike=0;f.linkUntil=0;f.sensor=false;syncFaultButtons();log('ok','All injected faults cleared.');});
+
+/* ---------- replay ---------- */
+function parseCsvLine(line){const out=[];let cur='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(q){if(ch==='"'){if(line[i+1]==='"'){cur+='"';i++;}else q=false;}else cur+=ch;}else if(ch==='"')q=true;else if(ch===','){out.push(cur);cur='';}else cur+=ch;}out.push(cur);return out;}
+function parseLog(text){
+  const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean); if(!lines.length)return [];
+  if(lines[0].startsWith('[')){try{const a=JSON.parse(text);return Array.isArray(a)?a.filter(o=>o&&typeof o==='object'):[];}catch(e){return [];}}
+  if(lines[0].startsWith('{')){const out=[];lines.forEach(l=>{try{const o=JSON.parse(l);if(o&&typeof o==='object'&&o.type!=='status')out.push(o);}catch(e){}});return out;}
+  const head=parseCsvLine(lines[0]).map(h=>h.trim()); if(!head.includes('packet_id')&&!head.some(h=>NUM.includes(h)))return [];
+  return lines.slice(1).map(l=>{const c=parseCsvLine(l),o={};head.forEach((h,i)=>{if(c[i]!==undefined&&c[i]!=='')o[h]=c[i];});return o;});
+}
+function loadText(name,text){
+  const rows=parseLog(text);
+  if(!rows.length){$('replayInfo').textContent=`${name}: no packets found`;log('warn',`No telemetry packets found in ${name}. Use one JSON object per line, or a CSV recorded by this page.`);return;}
+  replayStop(); resetData(); S.replay.rows=rows; S.replay.i=0; S.replay.name=name; $('replayPlay').disabled=false;
+  $('replayInfo').textContent=`${name} · ${rows.length} packets`; $('replayProg').style.width='0%';
+  log('info',`Loaded ${rows.length} packets from ${name}.`); replayPlay();
+}
+function loadFile(f){
+  if(!f)return; if(f.size>20e6){log('warn',`${f.name} is larger than 20 MB; open a shorter log.`);return;}
+  const rd=new FileReader(); rd.onload=()=>loadText(f.name,String(rd.result)); rd.onerror=()=>log('warn',`Couldn't read ${f.name}.`); rd.readAsText(f);
+}
+function replayPlay(){
+  const R=S.replay; if(!R.rows.length)return; if(R.i>=R.rows.length){R.i=0;resetData();}
+  R.playing=true; $('replayPlay').textContent='Pause';
+  clearInterval(R.timer); R.timer=setInterval(()=>{
+    if(R.i>=R.rows.length){replayStop();log('ok',`Replay of ${R.name} finished.`);return;}
+    ingest(R.rows[R.i++],'replay'); $('replayProg').style.width=(R.i/R.rows.length*100).toFixed(1)+'%';
+    $('replayInfo').textContent=`${R.name} · ${R.i} / ${R.rows.length}`;
+  },1000/Number($('replaySpeed').value));
+  render();
+}
+function replayStop(){const R=S.replay;clearInterval(R.timer);R.timer=null;R.playing=false;$('replayPlay').textContent=R.i>=R.rows.length&&R.rows.length?'Replay again':'Play';}
+$('replayPick').addEventListener('click',()=>$('replayFile').click());
+$('replayFile').addEventListener('change',e=>{loadFile(e.target.files[0]);e.target.value='';});
+$('replayPlay').addEventListener('click',()=>{S.replay.playing?(replayStop(),render()):replayPlay();});
+$('replaySpeed').addEventListener('change',()=>{if(S.replay.playing)replayPlay();});
+$('replaySample').addEventListener('click',()=>{
+  if(location.protocol==='file:'){$('replayInfo').textContent='Open examples/sample-orbit.jsonl with "Open log file"';return;}
+  fetch(SAMPLE_URL,{cache:'no-cache'}).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();}).then(t=>loadText('sample-orbit.jsonl',t)).catch(()=>{$('replayInfo').textContent='Sample not found; use Open log file';});
+});
+const dz=$('ctxReplay');
+['dragenter','dragover'].forEach(t=>dz.addEventListener(t,e=>{e.preventDefault();$('dropZone').classList.add('over');}));
+['dragleave','drop'].forEach(t=>dz.addEventListener(t,e=>{e.preventDefault();$('dropZone').classList.remove('over');}));
+dz.addEventListener('drop',e=>{const f=e.dataTransfer&&e.dataTransfer.files[0];loadFile(f);});
+
+/* ---------- live over MQTT (public broker, WebSocket) ---------- */
+function topics(){const t=$('topic').value.trim()||'ku-shihab/ku-siraj-1/telemetry';const base=t.replace(/\/telemetry$/,'');return {tele:t,status:base+'/status'};}
+function mqttConnect(){
+  mqttClose();
+  const M=S.mqtt;
+  if(!window.mqtt||typeof window.mqtt.connect!=='function'){M.state='nolib';$('liveHint').textContent='The MQTT library did not load (offline, or blocked by the network). Use Demo, Replay or the USB bridge.';log('warn','MQTT library unavailable; live link cannot start.');armFallback(0);render();return;}
+  const url=$('brokerUrl').value.trim(), T=topics();
+  if(!/^wss?:\/\/\S+$/i.test(url)){$('liveHint').textContent='Enter a WebSocket broker address such as wss://broker.hivemq.com:8884/mqtt.';return;}
+  M.state='connecting';M.pub=null;
+  let c;
+  try{c=window.mqtt.connect(url,{clientId:'ku-siraj-web-'+Math.random().toString(16).slice(2,10),clean:true,connectTimeout:8000,reconnectPeriod:4000,keepalive:30,protocolVersion:4});}
+  catch(e){M.state='error';log('warn','Could not start the MQTT connection.');render();return;}
+  M.client=c;
+  c.on('connect',()=>{M.state='connected';c.subscribe([T.tele,T.status],{qos:0},err=>{if(err)log('warn','Subscribe failed: '+(err.message||err));});
+    $('liveHint').textContent=`Connected to ${url.replace(/^wss?:\/\//,'').split('/')[0]} · listening on ${T.tele}`;log('ok','Connected to the MQTT broker.');render();});
+  c.on('reconnect',()=>{M.state='reconnecting';renderStatus();renderHealthPanel();});
+  c.on('offline',()=>{M.state='offline';renderStatus();renderHealthPanel();});
+  c.on('close',()=>{if(M.state==='connected'){log('warn','MQTT connection closed; retrying.');}if(M.state!=='idle')M.state='reconnecting';renderStatus();renderHealthPanel();});
+  c.on('error',e=>{M.state='error';$('liveHint').textContent='Broker error: '+((e&&e.message)||'connection failed')+'. Check the address or try another broker.';renderStatus();renderHealthPanel();});
+  c.on('message',(topic,payload,packet)=>{
+    if(!payload||payload.length>8192)return;
+    let text;try{text=new TextDecoder().decode(payload);}catch(e){return;}
+    if(topic===topics().status){let st=text.trim();try{const o=JSON.parse(text);st=o.state||o.status||st;}catch(e){}M.pub=/online/i.test(st)?'online':/offline/i.test(st)?'offline':String(st).slice(0,20);M.pubAt=Date.now();renderHealthPanel();return;}
+    let raw;try{raw=JSON.parse(text);}catch(e){log('warn','Ignored a message that was not JSON.');return;}
+    const ts=Date.parse(raw&&raw.timestamp);
+    const retained=!!(packet&&packet.retain);
+    const at=retained&&Number.isFinite(ts)?Math.min(Date.now(),ts):Date.now();
+    const fresh=Date.now()-at<=STALE_S*2000;
+    if(fresh)S.lastLiveTs=Date.now(); else S.lastLiveTs=Math.max(S.lastLiveTs||0,at);
+    if(S.mode==='live'){ingest(raw,'live',{at});if(retained&&!fresh)log('info',`Last stored packet is from ${ago(Date.now()-at)}; waiting for new data.`);}
+    else if(S.mode==='demo'&&S.fallback&&fresh){log('ok','Live packets detected. Switching from the simulation to live data.');setMode('live',{keepMqtt:true});ingest(raw,'live',{at});}
+  });
+  armFallback(FALLBACK_S*1000);
+  render();
+}
+function armFallback(ms){
+  clearTimeout(S.mqtt.fallbackTimer);
+  S.mqtt.fallbackTimer=setTimeout(()=>{
+    if(S.mode!=='live')return;
+    const a=ageMs();
+    if(a==null||a>STALE_S*2000){S.fallback=true;log('info','No live packets yet. Showing the simulation until the satellite transmits.');setMode('demo',{keepMqtt:true,fallback:true});}
+  },ms);
+}
+function mqttClose(){const M=S.mqtt;clearTimeout(M.fallbackTimer);if(M.client){const c=M.client;M.client=null;M.state='idle';try{c.removeAllListeners&&c.removeAllListeners();c.end(true);}catch(e){}}M.state='idle';}
+$('mqttBtn').addEventListener('click',()=>{S.fallback=false;resetData();log('info','Reconnecting to the MQTT broker.');mqttConnect();});
+['brokerUrl','topic'].forEach(id=>$(id).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('mqttBtn').click();}}));
+
+/* ---------- USB bridge (server.py on this computer) ---------- */
+function localConnect(){
+  localClose(); const L=S.local, url=$('bridgeUrl').value.trim();
+  if(!/^wss?:\/\/[^\s]+$/i.test(url)){$('localHint').textContent='Enter a WebSocket address such as ws://127.0.0.1:8000.';return;}
+  L.tried=true; $('localConnect').textContent='Disconnect'; $('localHint').textContent=`Connecting to ${url}…`;
+  let ws; try{ws=new WebSocket(url);}catch(e){localFail(url);return;}
+  L.ws=ws;
+  ws.onopen=()=>{L.open=true;$('localHint').textContent=`Connected to ${url}. Waiting for packets from the ESP32.`;log('ok','USB bridge connected.');render();};
+  ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){log('warn','Ignored a message that was not JSON.');return;}
+    if(m&&m.type==='status'){L.serial=!!m.serial_connected;L.port=typeof m.serial_port==='string'?m.serial_port.slice(0,40):null;
+      log(L.serial?'ok':'warn',L.serial?`Bridge reports serial port ${L.port||''} open.`:'Bridge is running but no serial port is open. Check the USB cable and COM port.');renderHealthPanel();return;}
+    ingest(m,'local');};
+  ws.onclose=()=>{const was=L.open;L.open=false;L.ws=null;L.serial=null;
+    if(S.mode!=='local')return;
+    if(was)log('warn','Bridge disconnected. Retrying every 3 s.');else localFail(url);
+    render();
+    if($('localConnect').textContent==='Disconnect'){clearTimeout(L.retry);L.retry=setTimeout(()=>{if(S.mode==='local'&&$('localConnect').textContent==='Disconnect')localConnect();},3000);}
+  };
+  render();
+}
+let failLogged=false;
+function localFail(url){$('localHint').textContent=`Couldn't reach ${url}. Start server.py on this computer (py server.py --serial-port COM5). Retrying.`;if(!failLogged){log('warn',`No bridge at ${url}.`);failLogged=true;}}
+function localClose(){const L=S.local;clearTimeout(L.retry);L.retry=null;if(L.ws){L.ws.onclose=null;try{L.ws.close();}catch(e){}L.ws=null;}L.open=false;L.serial=null;}
+$('localConnect').addEventListener('click',()=>{if($('localConnect').textContent==='Disconnect'){localClose();$('localConnect').textContent='Connect';$('localHint').textContent='Disconnected.';log('info','Disconnected from the bridge.');render();}else{failLogged=false;localConnect();}});
+$('bridgeUrl').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();failLogged=false;localConnect();}});
+
+/* ---------- mode switching ---------- */
+function resetData(){wasStale=false;S.samples=[];S.last=null;S.lastRaw=null;S.lastAt=0;S.ids={last:null,recv:0,lost:0};S.seen={};S.alertState={};S.branchWarned=false;S.lastEcl=null;S.marks=[];$('rawPacket').textContent='Waiting for a packet…';}
+function setMode(m,opt){
+  opt=opt||{};
+  if(S.mode===m&&!opt.force)return;
+  S.mode=m;
+  document.querySelectorAll('#modeSeg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===m)));
+  $('ctxLive').hidden=m!=='live';$('ctxDemo').hidden=m!=='demo';$('ctxReplay').hidden=m!=='replay';$('ctxLocal').hidden=m!=='local';
+  demoStop(); replayStop(); localClose(); $('localConnect').textContent='Connect'; S.local.tried=false;
+  if(!opt.keepMqtt){mqttClose();S.fallback=false;}
+  if(opt.fallback)S.fallback=true;
+  if(m!=='demo')S.fallback=false;
+  resetData();
+  if(m==='live'){if(!opt.keepMqtt||!S.mqtt.client){log('info','Live mode: listening for telemetry over MQTT.');mqttConnect();}}
+  else if(m==='demo'){if(!opt.fallback)log('info','Simulation started. Values are synthetic.');demoStart();}
+  else if(m==='replay'){log('info','Replay mode. Open a .jsonl log or a CSV recorded by this page.');$('replayInfo').textContent=S.replay.rows.length?`${S.replay.name} · ${S.replay.rows.length} packets`:'No file loaded';S.replay.i=0;}
+  else{log('info','USB bridge mode. Start server.py, then connect.');$('localHint').textContent='For a laptop wired to the ESP32: run server.py, then connect. Works in Chrome and Edge.';}
+  render();
+}
+document.querySelectorAll('#modeSeg button').forEach(b=>b.addEventListener('click',()=>{S.fallback=false;setMode(b.dataset.mode,{force:b.dataset.mode==='live'});}));
+
+/* ---------- CSV ---------- */
+function csvq(v){return v===undefined||v===null?'':'"'+String(v).replace(/"/g,'""')+'"';}
+$('recBtn').addEventListener('click',()=>{
+  if(!S.rec){S.rec=true;S.csvRows=[COLS.join(',')];$('recBtn').setAttribute('aria-pressed','true');$('recBtn').textContent='Stop recording';$('csvSave').hidden=true;$('csvCopy').hidden=true;log('info','CSV recording started.');}
+  else{S.rec=false;$('recBtn').setAttribute('aria-pressed','false');$('recBtn').textContent='Record CSV';
+    const n=S.csvRows.length-1; if(n<1){$('recInfo').textContent='Nothing recorded';log('warn','No packets arrived while recording.');return;}
+    S.csvText=S.csvRows.join('\r\n');$('csvSave').hidden=false;$('csvCopy').hidden=false;$('recInfo').textContent=`${n} rows ready`;log('ok',`Recorded ${n} packets.`);}
+});
+$('csvSave').addEventListener('click',()=>{const b=new Blob([S.csvText],{type:'text/csv'}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=`ku-siraj-1-telemetry-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);});
+$('csvCopy').addEventListener('click',()=>{const done=()=>{$('recInfo').textContent='Copied to clipboard';};
+  const fallback=()=>{const t=document.createElement('textarea');t.value=S.csvText;t.style.position='fixed';t.style.opacity='0';document.body.append(t);t.select();try{document.execCommand('copy');done();}catch(e){$('recInfo').textContent='Copy blocked by the browser';}t.remove();};
+  try{navigator.clipboard.writeText(S.csvText).then(done,fallback);}catch(e){fallback();}});
+
+/* ---------- events ui ---------- */
+$('evAll').addEventListener('click',()=>{S.evFilter='all';$('evAll').setAttribute('aria-pressed','true');$('evWarn').setAttribute('aria-pressed','false');renderEvents();});
+$('evWarn').addEventListener('click',()=>{S.evFilter='warn';$('evAll').setAttribute('aria-pressed','false');$('evWarn').setAttribute('aria-pressed','true');renderEvents();});
+$('evClear').addEventListener('click',()=>{S.events=[];renderEvents();});
+
+/* ---------- 1 s tick: clock, staleness, scrolling charts ---------- */
+setInterval(()=>{
+  $('clock').textContent=`${gst(Date.now())} GST`;
+  if(S.rec)$('recInfo').textContent=`${S.csvRows.length-1} rows`;
+  const st=isStale();
+  if(st!==wasStale){wasStale=st;if(st){log('bad',`No packet for ${STALE_S} s. Values shown are the last received, not live.`);mark('Link lost','bad');}else if(S.lastAt)log('ok','Telemetry resumed.');}
+  renderStatus();renderHealth();renderHealthPanel();renderTiles();CHARTS.forEach(drawChart);
+  document.querySelectorAll('#covBody tr').forEach((tr,i)=>{const td=tr.lastElementChild;const k=COV[i];if(td&&k)td.textContent=S.seen[k]?ago(Date.now()-S.seen[k]):'—';});
+  syncFaultButtons();
+},1000);
+let rz=null;
+const ro=new ResizeObserver(()=>{clearTimeout(rz);rz=setTimeout(()=>{if(Math.abs($('flowBox').clientWidth-F.W)>4)buildFlow();CHARTS.forEach(drawChart);renderTiles();},80);});
+ro.observe($('flowBox'));CHARTS.forEach(c=>ro.observe($(c.id)));
+const redraw=()=>{CHARTS.forEach(drawChart);renderTiles();};
+try{window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',redraw);}catch(e){}
+
+/* ---------- start: live first, simulation if nothing arrives ---------- */
+$('clock').textContent=`${gst(Date.now())} GST`;
+buildOrbit(); buildFlow();
+const start=params.get('mode');
+if(start==='demo'||start==='replay'||start==='local'){S.mode='';setMode(start);}
+else{S.mode='';setMode('live');}
+})();
+</script>
+</body>
+</html>
