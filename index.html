@@ -109,8 +109,6 @@ button,input,select{font:inherit;color:inherit}
 .btn:hover{border-color:var(--muted)}
 .btn.primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .btn.sm{padding:4px 10px;font-size:12px}
-.btn.fault{border-style:dashed}
-.btn.fault[aria-pressed="true"]{border-style:solid;border-color:var(--warn);color:var(--warn);background:var(--chip-sim)}
 .btn.rec[aria-pressed="true"]{color:var(--bad);border-color:var(--bad)}
 .btn.rec[aria-pressed="true"]::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:7px}
 button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--pem);outline-offset:2px}
@@ -123,8 +121,6 @@ select,input[type=text]{background:var(--panel-2);border:1px solid var(--line);b
 .prog span{display:block;height:100%;width:0;background:var(--pem)}
 .drop{border:1px dashed var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--muted)}
 .drop.over{border-color:var(--pem);color:var(--fg)}
-.faults{display:flex;flex-wrap:wrap;align-items:center;gap:6px;border-top:1px solid var(--line-soft);padding-top:10px}
-.faults .lbl{margin-right:4px}
 
 /* cards */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;min-width:0;position:relative}
@@ -313,14 +309,6 @@ footer a{color:var(--pem)}
       <span class="hint" id="localHint">For a laptop wired to the ESP32: run server.py, then connect. Works in Chrome and Edge from this page or the downloaded copy.</span>
     </div>
 
-    <div class="faults" id="faultRow">
-      <span class="lbl">Fault injection (simulation only)</span>
-      <button type="button" class="btn sm fault" data-fault="drain" aria-pressed="false">Battery falling</button>
-      <button type="button" class="btn sm fault" data-fault="spike" aria-pressed="false">Temperature spike</button>
-      <button type="button" class="btn sm fault" data-fault="link" aria-pressed="false">Link lost 12 s</button>
-      <button type="button" class="btn sm fault" data-fault="sensor" aria-pressed="false">Temp sensor failure</button>
-      <button type="button" class="btn sm" id="faultClear">Clear faults</button>
-    </div>
   </section>
 
   <section class="hero">
@@ -469,7 +457,7 @@ const S={mode:'live',samples:[],last:null,lastRaw:null,lastAt:0,ids:{last:null,r
   marks:[],range:300,rec:false,csvRows:[],csvText:'',branchWarned:false,lastEcl:null,fallback:false,lastLiveTs:null,
   mqtt:{client:null,state:'idle',pub:null,pubAt:0,fallbackTimer:null},
   local:{ws:null,open:false,tried:false,serial:null,port:null,retry:null},
-  demo:{timer:null,paused:false,min:88,id:0,drift:0,warm:.9,f:{drain:0,draining:false,spike:0,linkUntil:0,sensor:false}},
+  demo:{timer:null,paused:false,min:88,id:0,drift:0,warm:.9},
   replay:{rows:[],i:0,timer:null,playing:false,name:''}};
 let wasStale=false;
 
@@ -595,7 +583,7 @@ function renderStatus(){
   let lt,lc;
   if(S.mode==='live'){const m=S.mqtt.state;lt={connected:'Broker connected',connecting:'Connecting to broker',reconnecting:'Reconnecting',offline:'Broker offline',error:'Broker error',idle:'Not connected',nolib:'MQTT unavailable'}[m]||m;lc=m==='connected'?(stale||!p?'sim':'ok'):m==='connecting'||m==='reconnecting'?'sim':'bad';}
   else if(S.mode==='local'){lt=S.local.open?'Bridge connected':S.local.tried?'Bridge offline':'Not connected';lc=S.local.open?'ok':S.local.tried?'bad':'mute';}
-  else if(S.mode==='demo'){lt=S.demo.paused?'Demo paused':Date.now()<S.demo.f.linkUntil?'Link lost (simulated)':'Demo generator';lc=Date.now()<S.demo.f.linkUntil?'bad':'mute';}
+  else if(S.mode==='demo'){lt=S.demo.paused?'Demo paused':'Demo generator';lc='mute';}
   else{lt=S.replay.playing?'Replaying':'Replay idle';lc='mute';}
   $('linkPill').className='pill '+lc;$('linkText').textContent=lt;
   $('agePill').className='pill '+(a==null?'mute':stale?'bad':'mute');
@@ -953,20 +941,18 @@ function demoPacket(){
   D.id++;
   if(s<.5)D.drift=Math.min(.12,D.drift+.0022);else D.drift=Math.max(0,D.drift-.004);
   D.warm+=(s-D.warm)*.09;
-  if(F2.draining)F2.drain=Math.min(.75,F2.drain+.012);
-  F2.spike*=.975;
   const batI=81.5-76.3*s+rnd()*.8;
   return{
     device_id:'ku-siraj-1-sim',packet_id:D.id,timestamp:new Date().toISOString(),telemetry_source:'Browser simulation · Multisim model',
     operating_mode:s>=.5?'SUNLIGHT':'ECLIPSE',orbit_phase_deg:r2(ang,1),
     solar_voltage_v:r2(s>.02?4.98*Math.min(1,s*2.5)+rnd()*.03:0,2),solar_current_ma:r2(Math.max(0,79.6*s+rnd()*.8),1),
-    battery_voltage_v:r2(3.86-.0009*batI-D.drift-F2.drain+rnd()*.004,3),battery_current_ma:r2(batI,1),
+    battery_voltage_v:r2(3.86-.0009*batI-D.drift+rnd()*.004,3),battery_current_ma:r2(batI,1),
     pem_voltage_v:r2(.6+rnd()*.01,3),pem_current_ma:r2(75+rnd()*2,1),
     load_voltage_v:r2(3.41+.11*s+rnd()*.006,3),load_current_ma:r2(94.8+2.8*s+rnd()*.6,1),
-    temperature_c:F2.sensor?null:r2(17+13*D.warm+F2.spike+rnd()*.3,1),lora_rssi_dbm:Math.round(-86+8*Math.sin(D.id/11)+rnd()*4),
+    temperature_c:r2(17+13*D.warm+rnd()*.3,1),lora_rssi_dbm:Math.round(-86+8*Math.sin(D.id/11)+rnd()*4),
     simulated:true};
 }
-function demoStep(){const pk=demoPacket();if(Date.now()<S.demo.f.linkUntil){renderStatus();return;}ingest(pk,'demo');}
+function demoStep(){const pk=demoPacket();ingest(pk,'demo');}
 function demoStart(){
   demoStop(); S.demo.paused=false; $('demoPause').textContent='Pause';
   if(!S.samples.length){const n=150,now=Date.now();for(let i=0;i<n;i++){const pk=demoPacket();pk.timestamp=new Date(now-(n-i)*1000).toISOString();ingest(pk,'demo',{quiet:true,at:now-(n-i)*1000});}render();}
@@ -976,18 +962,6 @@ function demoStop(){if(S.demo.timer){clearInterval(S.demo.timer);S.demo.timer=nu
 $('demoPause').addEventListener('click',()=>{if(S.mode!=='demo')return;if(S.demo.paused){demoStart();log('info','Simulation resumed.');}else{demoStop();S.demo.paused=true;$('demoPause').textContent='Resume';log('info','Simulation paused.');render();}});
 $('demoSpeed').addEventListener('change',()=>{if(S.mode==='demo'&&!S.demo.paused)demoStart();});
 
-function syncFaultButtons(){const f=S.demo.f;const on={drain:f.draining,spike:f.spike>1,link:Date.now()<f.linkUntil,sensor:f.sensor};document.querySelectorAll('[data-fault]').forEach(b=>b.setAttribute('aria-pressed',String(!!on[b.dataset.fault])));}
-document.querySelectorAll('[data-fault]').forEach(b=>b.addEventListener('click',()=>{
-  if(S.mode!=='demo'){S.fallback=false;setMode('demo');}
-  if(S.demo.paused)demoStart();
-  const f=S.demo.f,k=b.dataset.fault;
-  if(k==='drain'){f.draining=!f.draining;if(f.draining){log('info','Fault injected: battery falling 0.012 V per packet.');mark('Fault: battery falling','warn');}else log('info','Battery drain stopped.');}
-  if(k==='spike'){f.spike=35;log('info','Fault injected: +35 °C temperature spike.');mark('Fault: temp spike','warn');}
-  if(k==='link'){f.linkUntil=Date.now()+12000;log('info','Fault injected: link lost for 12 s. Packets keep counting, so the gap shows as missing IDs.');mark('Fault: link lost','warn');}
-  if(k==='sensor'){f.sensor=!f.sensor;if(f.sensor){log('info','Fault injected: temperature sensor sends null.');mark('Fault: sensor null','warn');}else log('info','Temperature sensor restored.');}
-  syncFaultButtons();
-}));
-$('faultClear').addEventListener('click',()=>{const f=S.demo.f;f.draining=false;f.drain=0;f.spike=0;f.linkUntil=0;f.sensor=false;syncFaultButtons();log('ok','All injected faults cleared.');});
 
 /* ---------- replay ---------- */
 function parseCsvLine(line){const out=[];let cur='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(q){if(ch==='"'){if(line[i+1]==='"'){cur+='"';i++;}else q=false;}else cur+=ch;}else if(ch==='"')q=true;else if(ch===','){out.push(cur);cur='';}else cur+=ch;}out.push(cur);return out;}
@@ -1153,7 +1127,6 @@ setInterval(()=>{
   if(st!==wasStale){wasStale=st;if(st){log('bad',`No packet for ${STALE_S} s. Values shown are the last received, not live.`);mark('Link lost','bad');}else if(S.lastAt)log('ok','Telemetry resumed.');}
   renderStatus();renderHealth();renderHealthPanel();renderTiles();CHARTS.forEach(drawChart);
   document.querySelectorAll('#covBody tr').forEach((tr,i)=>{const td=tr.lastElementChild;const k=COV[i];if(td&&k)td.textContent=S.seen[k]?ago(Date.now()-S.seen[k]):'—';});
-  syncFaultButtons();
 },1000);
 let rz=null;
 const ro=new ResizeObserver(()=>{clearTimeout(rz);rz=setTimeout(()=>{if(Math.abs($('flowBox').clientWidth-F.W)>4)buildFlow();CHARTS.forEach(drawChart);renderTiles();},80);});
