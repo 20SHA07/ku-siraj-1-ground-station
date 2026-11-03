@@ -100,6 +100,18 @@ font-family:monospace;font-size:.75rem;height:120px;overflow-y:auto;color:var(--
     <button onclick="preset('recovery')">🔄 Recovery</button>
     <button onclick="preset('low_power')">🔋 Low Power</button>
   </div>
+  <h2 style="margin-top:12px">🔦 Flashlight Demo</h2>
+  <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Tap when you move the flashlight — values animate smoothly</p>
+  <div class="presets" style="margin-bottom:4px">
+    <button onclick="flashlight('on')" style="background:#e8a020;color:#000;font-size:.95rem;padding:10px 24px">☀️ LIGHT ON</button>
+    <button onclick="flashlight('off')" style="background:#1a1e2e;border:2px solid var(--accent);font-size:.95rem;padding:10px 24px">🌑 LIGHT OFF</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <label>Transition speed (s)</label>
+    <input type="range" id="flashTransition" min="0.5" max="5" step="0.5" value="2">
+    <span class="val" id="flashTransVal">2.0</span>
+  </div>
+
   <h2 style="margin-top:12px">💥 Fault Scenarios</h2>
   <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Animate a fault over multiple packets</p>
   <div class="presets">
@@ -537,6 +549,61 @@ const PRESETS = {
     operating_mode:'LOW_POWER'
   }
 };
+
+/* ── Flashlight transition speed ── */
+document.getElementById('flashTransition').addEventListener('input', function(){
+  document.getElementById('flashTransVal').textContent = parseFloat(this.value).toFixed(1);
+});
+
+/* ── Flashlight demo mode ── */
+let flashAnim = null;
+function flashlight(mode){
+  if(flashAnim) cancelAnimationFrame(flashAnim);
+  const target = mode==='on' ? {
+    solar_voltage_v:4.92, solar_current_ma:72, battery_voltage_v:3.90, battery_current_ma:22,
+    pem_voltage_v:3.32, pem_current_ma:46, load_voltage_v:3.32, load_current_ma:82,
+    temperature_c:31, lora_rssi_dbm:-76, packet_success_pct:99, orbit_phase_deg:90,
+    operating_mode:'SUNLIGHT'
+  } : {
+    solar_voltage_v:0, solar_current_ma:0, battery_voltage_v:3.62, battery_current_ma:-45,
+    pem_voltage_v:3.26, pem_current_ma:40, load_voltage_v:3.26, load_current_ma:58,
+    temperature_c:6, lora_rssi_dbm:-90, packet_success_pct:97, orbit_phase_deg:240,
+    operating_mode:'ECLIPSE'
+  };
+  // Read current slider values as start
+  const start = {};
+  const numFields = ['solar_voltage_v','solar_current_ma','battery_voltage_v','battery_current_ma',
+    'pem_voltage_v','pem_current_ma','load_voltage_v','load_current_ma',
+    'temperature_c','lora_rssi_dbm','packet_success_pct','orbit_phase_deg'];
+  numFields.forEach(f => { start[f] = parseFloat(document.getElementById(f).value); });
+
+  const duration = parseFloat(document.getElementById('flashTransition').value) * 1000;
+  const t0 = performance.now();
+
+  // Set operating mode immediately
+  document.getElementById('operating_mode').value = target.operating_mode;
+
+  function tick(now){
+    let progress = Math.min(1, (now - t0) / duration);
+    // Ease in-out for smooth look
+    progress = progress < 0.5 ? 2*progress*progress : 1 - Math.pow(-2*progress+2,2)/2;
+
+    numFields.forEach(f => {
+      const v = start[f] + (target[f] - start[f]) * progress;
+      setVal(f, f==='orbit_phase_deg' ? v.toFixed(0) : v.toFixed(2));
+    });
+    updatePowerDisplays();
+
+    if(progress < 1) {
+      flashAnim = requestAnimationFrame(tick);
+    } else {
+      flashAnim = null;
+      log(mode==='on' ? '☀️ Flashlight ON — sunlit transition complete' : '🌑 Flashlight OFF — eclipse transition complete');
+    }
+  }
+  flashAnim = requestAnimationFrame(tick);
+  log(mode==='on' ? '🔦 Transitioning to SUNLIT...' : '🔦 Transitioning to ECLIPSE...');
+}
 
 /* ── Log ── */
 function log(msg){
