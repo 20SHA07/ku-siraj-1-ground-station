@@ -325,7 +325,7 @@ function buildPacket(){
     packet_id: packetId,
     timestamp: new Date().toISOString().replace(/\.\d+Z$/,'Z'),
     operating_mode: document.getElementById('operating_mode').value,
-    telemetry_source: 'live'
+    telemetry_source: 'ESP32 LoRa · USB serial'
   };
 
   const fields = ['solar_voltage_v','solar_current_ma','battery_voltage_v','battery_current_ma',
