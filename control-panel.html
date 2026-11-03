@@ -112,6 +112,13 @@ font-family:monospace;font-size:.75rem;height:120px;overflow-y:auto;color:var(--
     <span class="val" id="flashTransVal">2.0</span>
   </div>
 
+  <h2 style="margin-top:12px">🌡️ Heat Demo</h2>
+  <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Simulate pointing a heat gun / lighter — temperature climbs or cools</p>
+  <div class="presets" style="margin-bottom:4px">
+    <button onclick="heatDemo('on')" style="background:#cc3300;font-size:.95rem;padding:10px 24px">🔥 HEAT ON</button>
+    <button onclick="heatDemo('off')" style="background:#1a3a5c;font-size:.95rem;padding:10px 24px">❄️ COOL DOWN</button>
+  </div>
+
   <h2 style="margin-top:12px">💥 Fault Scenarios</h2>
   <p style="color:var(--dim);font-size:.8rem;margin-bottom:10px">Animate a fault over multiple packets</p>
   <div class="presets">
@@ -549,6 +556,35 @@ const PRESETS = {
     operating_mode:'LOW_POWER'
   }
 };
+
+/* ── Heat demo mode ── */
+let heatAnim = null;
+let heatTarget = null;
+function heatDemo(mode){
+  if(heatAnim) cancelAnimationFrame(heatAnim);
+  const duration = parseFloat(document.getElementById('flashTransition').value) * 1000;
+  const t0 = performance.now();
+  const startTemp = parseFloat(document.getElementById('temperature_c').value);
+  // Heat ON: climb to 65°C (warning→critical territory). Cool: drop to 24°C
+  heatTarget = mode==='on' ? 65 : 24;
+
+  function tick(now){
+    let progress = Math.min(1, (now - t0) / duration);
+    // Ease curve
+    progress = progress < 0.5 ? 2*progress*progress : 1 - Math.pow(-2*progress+2,2)/2;
+    const temp = startTemp + (heatTarget - startTemp) * progress;
+    setVal('temperature_c', temp.toFixed(1));
+    updatePowerDisplays();
+    if(progress < 1){
+      heatAnim = requestAnimationFrame(tick);
+    } else {
+      heatAnim = null;
+      log(mode==='on' ? '🔥 Heat applied — temperature at '+heatTarget+'°C' : '❄️ Cooled down — temperature at '+heatTarget+'°C');
+    }
+  }
+  heatAnim = requestAnimationFrame(tick);
+  log(mode==='on' ? '🌡️ Heating up...' : '🌡️ Cooling down...');
+}
 
 /* ── Flashlight transition speed ── */
 document.getElementById('flashTransition').addEventListener('input', function(){
