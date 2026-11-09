@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>KU-SIRAJ 1 Ground Station</title>
-<meta name="description" content="Live ground-station dashboard for KU-SIRAJ 1, Team KU-SHIHAB's hydrogen-assisted CubeSat power demonstrator (SatForge UAE 2026).">
+<meta name="description" content="Live ground-station dashboard for KU-SIRAJ 1, Team KU-SHIHAB's motion and presence detection CubeSat demonstrator (SatForge UAE 2026).">
 <meta name="theme-color" content="#0a1120">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect x='1' y='1' width='32' height='32' rx='8' fill='%2314223b'/%3E%3Crect x='12' y='12' width='10' height='10' rx='1.5' fill='none' stroke='%23e5ecf8' stroke-width='1.6'/%3E%3Crect x='4' y='14.5' width='7' height='5' fill='%23f4b13e'/%3E%3Crect x='23' y='14.5' width='7' height='5' fill='%23f4b13e'/%3E%3Ccircle cx='17' cy='17' r='2' fill='%236ea9ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,13 +13,15 @@
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <style>
 /* Layout: mission-control console. Header (mission | link | last packet age), then the
-   5-second health banner, data-source controls, orbit + power flow, six channel tiles,
-   four time-based trend charts, coverage / link chain / events, packet inspector. */
+   5-second health banner, data-source controls, orbit + power flow, nine channel tiles
+   (power + PIR + light + orientation), six trend charts, coverage / link chain / events,
+   packet inspector. */
 :root{
   color-scheme:dark;
   --bg:#0a1120; --panel:#0f1a2e; --panel-2:#14223b; --line:#203152; --line-soft:#182742;
   --fg:#e5ecf8; --muted:#8a9ab6; --faint:#5d6d8a;
   --solar:#f4b13e; --bat:#33c4ad; --pem:#6ea9ff; --temp:#ff8a7a; --load:#e5ecf8;
+  --pir:#e879f9; --ldr:#facc15; --imu:#38bdf8;
   --ok:#4ccf8a; --warn:#f2a53a; --bad:#ff6b6b; --stale:#8a9ab6;
   --shade:rgba(110,169,255,.08); --umbra:rgba(2,6,14,.72); --earth:#1d3d6b; --space:#071022; --sunray:rgba(244,177,62,.16);
   --chip-sim:rgba(242,165,58,.14); --chip-ok:rgba(76,207,138,.14); --chip-bad:rgba(255,107,107,.14); --chip-mute:rgba(138,154,182,.12);
@@ -33,6 +35,7 @@
   --bg:#eef2f8; --panel:#ffffff; --panel-2:#f3f6fb; --line:#d3dcea; --line-soft:#e3e9f3;
   --fg:#111d33; --muted:#53627d; --faint:#8592a9;
   --solar:#b46a00; --bat:#0b8a77; --pem:#2a66cf; --temp:#c9473a; --load:#111d33;
+  --pir:#a21caf; --ldr:#a16207; --imu:#0369a1;
   --ok:#17834f; --warn:#a85f00; --bad:#c43535; --stale:#53627d;
   --shade:rgba(42,102,207,.07); --umbra:rgba(17,29,51,.22); --earth:#9cc0ea; --space:#e2e9f4; --sunray:rgba(180,106,0,.12);
   --chip-sim:rgba(168,95,0,.10); --chip-ok:rgba(23,131,79,.10); --chip-bad:rgba(196,53,53,.10); --chip-mute:rgba(83,98,125,.10);
@@ -42,6 +45,7 @@
   --bg:#eef2f8; --panel:#ffffff; --panel-2:#f3f6fb; --line:#d3dcea; --line-soft:#e3e9f3;
   --fg:#111d33; --muted:#53627d; --faint:#8592a9;
   --solar:#b46a00; --bat:#0b8a77; --pem:#2a66cf; --temp:#c9473a; --load:#111d33;
+  --pir:#a21caf; --ldr:#a16207; --imu:#0369a1;
   --ok:#17834f; --warn:#a85f00; --bad:#c43535; --stale:#53627d;
   --shade:rgba(42,102,207,.07); --umbra:rgba(17,29,51,.22); --earth:#9cc0ea; --space:#e2e9f4; --sunray:rgba(180,106,0,.12);
   --chip-sim:rgba(168,95,0,.10); --chip-ok:rgba(23,131,79,.10); --chip-bad:rgba(196,53,53,.10); --chip-mute:rgba(83,98,125,.10);
@@ -161,7 +165,7 @@ select,input[type=text]{background:var(--panel-2);border:1px solid var(--line);b
 .tile.stale .val{color:var(--stale);opacity:.7}
 .tile .sub{font-size:11.5px;color:var(--muted);min-height:1.4em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile canvas{width:100%;height:30px;display:block;margin-top:4px}
-.c-solar{background:var(--solar)} .c-bat{background:var(--bat)} .c-pem{background:var(--pem)} .c-temp{background:var(--temp)} .c-load{background:var(--load)} .c-ok{background:var(--ok)} .c-bad{background:var(--bad)} .c-warn{background:var(--warn)}
+.c-solar{background:var(--solar)} .c-bat{background:var(--bat)} .c-pem{background:var(--pem)} .c-temp{background:var(--temp)} .c-load{background:var(--load)} .c-pir{background:var(--pir)} .c-ldr{background:var(--ldr)} .c-imu{background:var(--imu)} .c-ok{background:var(--ok)} .c-bad{background:var(--bad)} .c-warn{background:var(--warn)}
 .chip{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:99px;padding:1px 8px;white-space:nowrap}
 .chip.ok{color:var(--ok);background:var(--chip-ok)}
 .chip.warn,.chip.sim{color:var(--warn);background:var(--chip-sim)}
@@ -238,7 +242,7 @@ footer a{color:var(--pem)}
 <header class="top"><div class="top-in">
   <div class="brand">
     <svg class="mark" viewBox="0 0 34 34" aria-hidden="true"><rect x="1" y="1" width="32" height="32" rx="8" fill="var(--panel-2)" stroke="var(--line)"/><rect x="12" y="12" width="10" height="10" rx="1.5" fill="none" stroke="var(--fg)" stroke-width="1.6"/><rect x="4" y="14.5" width="7" height="5" fill="var(--solar)"/><rect x="23" y="14.5" width="7" height="5" fill="var(--solar)"/><circle cx="17" cy="17" r="2" fill="var(--pem)"/></svg>
-    <div><h1>KU-SIRAJ 1</h1><p>Team KU-SHIHAB · Hydrogen-assisted power demonstrator · Ground station</p></div>
+    <div><h1>KU-SIRAJ 1</h1><p>Team KU-SHIHAB · Motion &amp; presence detection demonstrator · Ground station</p></div>
   </div>
   <div class="status" aria-live="polite">
     <span class="pill sim" id="dataPill"><i></i><span id="dataText">Simulated data</span></span>
@@ -337,6 +341,9 @@ footer a{color:var(--pem)}
     <div class="tile" id="tileLoad"><div class="tile-h"><div class="lab"><i class="c-load"></i>Load branch</div><span class="chip none">--</span></div><div class="val" id="tLoad">--<small>mW</small></div><div class="sub" id="sLoad">--</div><canvas id="kLoad"></canvas></div>
     <div class="tile" id="tileTemp"><div class="tile-h"><div class="lab"><i class="c-temp"></i>Temperature</div><span class="chip none">--</span></div><div class="val" id="tTemp">--<small>°C</small></div><div class="sub" id="sTemp">--</div><canvas id="kTemp"></canvas></div>
     <div class="tile" id="tileRadio"><div class="tile-h"><div class="lab"><i class="c-ok"></i>Radio link</div><span class="chip none">--</span></div><div class="val" id="tRssi">--<small>dBm</small></div><div class="sub" id="sRssi">--</div><canvas id="kRssi"></canvas></div>
+    <div class="tile" id="tilePir"><div class="tile-h"><div class="lab"><i class="c-pir"></i>PIR motion</div><span class="chip none">--</span></div><div class="val" id="tPir">--</div><div class="sub" id="sPir">--</div><canvas id="kPir"></canvas></div>
+    <div class="tile" id="tileLight"><div class="tile-h"><div class="lab"><i class="c-ldr"></i>Light level</div><span class="chip none">--</span></div><div class="val" id="tLight">--<small>lux</small></div><div class="sub" id="sLight">--</div><canvas id="kLight"></canvas></div>
+    <div class="tile" id="tileOrient"><div class="tile-h"><div class="lab"><i class="c-imu"></i>Orientation</div><span class="chip none">--</span></div><div class="val" id="tOrient">--<small>°</small></div><div class="sub" id="sOrient">--</div><canvas id="kOrient"></canvas></div>
   </section>
 
   <section aria-label="Trends" style="display:flex;flex-direction:column;gap:10px">
@@ -361,6 +368,12 @@ footer a{color:var(--pem)}
       <article class="card"><div class="card-h"><h2>LoRa signal</h2><small>Is the link alive? · dBm</small></div>
         <div class="legend"><span><i class="c-pem"></i>RSSI</span><span><i class="dash"></i>Warn −105</span><span><i class="dash bad"></i>Critical −115</span></div>
         <div class="plot" id="pRssi"><canvas></canvas></div></article>
+      <article class="card"><div class="card-h"><h2>Motion &amp; events</h2><small>PIR detections over time</small></div>
+        <div class="legend"><span><i class="c-pir"></i>Motion (0/1)</span><span><i class="c-ldr"></i>Events</span></div>
+        <div class="plot" id="pMotion"><canvas></canvas></div></article>
+      <article class="card"><div class="card-h"><h2>Light &amp; orientation</h2><small>LDR lux + MPU-6050 pitch · °</small></div>
+        <div class="legend"><span><i class="c-ldr"></i>Light (lux)</span><span><i class="c-imu"></i>Pitch</span></div>
+        <div class="plot" id="pEnv"><canvas></canvas></div></article>
     </div>
   </section>
 
@@ -398,25 +411,29 @@ footer a{color:var(--pem)}
     <div class="inspect-grid">
       <div><h3>Latest packet</h3><pre id="rawPacket">Waiting for a packet…</pre></div>
       <div><h3>Data contract: one JSON object per message (MQTT payload or USB serial line)</h3><pre>{"device_id":"ku-siraj-1","packet_id":12,
- "timestamp":"2026-11-03T08:00:00Z",
+ "timestamp":"2026-11-09T08:00:00Z",
  "operating_mode":"SUNLIGHT",
  "solar_voltage_v":4.9,"solar_current_ma":55.2,
  "battery_voltage_v":3.84,"temperature_c":26.1,
+ "motion":1,"event_count":42,
+ "light_lux":620,"pitch_deg":1.3,"roll_deg":-0.8,
  "lora_rssi_dbm":-85,"simulated":false}
 
 device_id, packet_id required. timestamp: ISO 8601 UTC,
 set by the publisher on receipt if the ESP32 has no clock.
 Channel not wired  -> leave the field out.
 Sensor read failed -> send the field as null.
+Primary: motion (1=detect, 0=clear), event_count,
+light_lux (LDR), pitch_deg, roll_deg (MPU-6050).
+Secondary: pem_voltage_v, pem_current_ma.
 Optional: battery_current_ma (+ = discharging),
-pem_voltage_v, pem_current_ma, load_voltage_v,
-load_current_ma, *_power_mw, packet_success_pct,
-wifi_rssi_dbm, orbit_phase_deg (0 = shadow centre).
+load_voltage_v, load_current_ma, *_power_mw,
+packet_success_pct, orbit_phase_deg (0 = shadow centre).
 Power is V × mA when *_power_mw is omitted.</pre></div>
     </div>
   </details>
 
-  <footer><strong>KU-SIRAJ 1 · Team KU-SHIHAB · SatForge UAE 2026.</strong> Read-only ground station: it never switches power sources or controls hydrogen equipment, and it is not flight hardware. PEM figures are provisional until bench-verified. Simulated and replayed values are labelled and are not measurements. The demo uses the team's Multisim 14.1 power-path model (solar 5 V × 80 mA, 3.7 V 1000 mAh battery, provisional 0.6 V × 100 mA PEM cell) and shows every branch at once, while the planned board lists one INA219 that measures one shunt branch at a time. Live data travels over a public MQTT test broker, so anyone who knows the topic can publish to it; the page validates every packet. Limits are provisional: battery warn 3.5 V / critical 3.3 V, temperature warn 40 °C / critical 45 °C, RSSI warn −105 / critical −115 dBm, packet success warn 95 % / critical 80 %, stale after 5 s. Times are Gulf Standard Time (UTC+4). Battery state of charge is not estimated. Setup, data contract and test plan: <a href="https://github.com/20SHA07/ku-siraj-1-ground-station">github.com/20SHA07/ku-siraj-1-ground-station</a>.</footer>
+  <footer><strong>KU-SIRAJ 1 · Team KU-SHIHAB · SatForge UAE 2026.</strong> Read-only ground station for the KU-SIRAJ 1 motion and presence detection demonstrator. Primary payload: HC-SR501 PIR motion/presence sensor with LDR light, DS18B20 temperature and MPU-6050 orientation as environmental context. Secondary mission: PEM hydrogen fuel cell power experiment. This is a bench/ground demonstration, not flight hardware. PEM figures are provisional until bench-verified. Simulated and replayed values are labelled and are not measurements. The demo uses the team's Multisim 14.1 power-path model with simulated PIR triggers. Live data travels over a public MQTT test broker; the page validates every packet. Limits are provisional: battery warn 3.5 V / critical 3.3 V, temperature warn 40 °C / critical 45 °C, RSSI warn −105 / critical −115 dBm, packet success warn 95 % / critical 80 %, stale after 5 s. Times are Gulf Standard Time (UTC+4). Setup, data contract and test plan: <a href="https://github.com/20SHA07/ku-siraj-1-ground-station">github.com/20SHA07/ku-siraj-1-ground-station</a>.</footer>
 </main>
 
 <script>
@@ -436,9 +453,14 @@ const DICT={
   load_current_ma:{label:'Load current',unit:'mA',d:1,range:[-5,300],warn:{hi:110},crit:{hi:130}},
   temperature_c:{label:'Temperature',unit:'°C',d:1,range:[-40,125],warn:{lo:0,hi:40},crit:{lo:-10,hi:45},flat:true},
   lora_rssi_dbm:{label:'LoRa RSSI',unit:'dBm',d:0,range:[-150,0],warn:{lo:-105},crit:{lo:-115}},
-  packet_success_pct:{label:'Packet success',unit:'%',d:1,range:[0,100],warn:{lo:95},crit:{lo:80}}
+  packet_success_pct:{label:'Packet success',unit:'%',d:1,range:[0,100],warn:{lo:95},crit:{lo:80}},
+  motion:{label:'PIR motion',unit:'',d:0,range:[0,1]},
+  event_count:{label:'Event count',unit:'',d:0,range:[0,99999]},
+  light_lux:{label:'Light level',unit:'lux',d:0,range:[0,65535]},
+  pitch_deg:{label:'Pitch',unit:'°',d:1,range:[-180,180]},
+  roll_deg:{label:'Roll',unit:'°',d:1,range:[-180,180]}
 };
-const NUM=['solar_voltage_v','solar_current_ma','solar_power_mw','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','pem_power_mw','load_voltage_v','load_current_ma','load_power_mw','temperature_c','lora_rssi_dbm','wifi_rssi_dbm','packet_success_pct','orbit_phase_deg'];
+const NUM=['solar_voltage_v','solar_current_ma','solar_power_mw','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','pem_power_mw','load_voltage_v','load_current_ma','load_power_mw','temperature_c','lora_rssi_dbm','wifi_rssi_dbm','packet_success_pct','orbit_phase_deg','motion','event_count','light_lux','pitch_deg','roll_deg'];
 const COLS=['timestamp','device_id','packet_id','telemetry_source','operating_mode'].concat(NUM,['simulated']);
 const ORBIT=94, ECL=35, ECL_HALF=ECL/ORBIT*180, STALE_S=5, FALLBACK_S=8, FLAT_N=30, MAXS=2400;
 const SAMPLE_URL='examples/sample-orbit.jsonl';
@@ -457,7 +479,7 @@ const S={mode:'live',samples:[],last:null,lastRaw:null,lastAt:0,ids:{last:null,r
   marks:[],range:300,rec:false,csvRows:[],csvText:'',branchWarned:false,lastEcl:null,fallback:false,lastLiveTs:null,
   mqtt:{client:null,state:'idle',pub:null,pubAt:0,fallbackTimer:null},
   local:{ws:null,open:false,tried:false,serial:null,port:null,retry:null},
-  demo:{timer:null,paused:false,min:88,id:0,drift:0,warm:.9},
+  demo:{timer:null,paused:false,min:88,id:0,drift:0,warm:.9,events:0,pirOn:false,pirCool:0},
   replay:{rows:[],i:0,timer:null,playing:false,name:''}};
 let wasStale=false;
 
@@ -639,14 +661,34 @@ function renderTiles(){
   setVal('tRssi',p.lora_rssi_dbm,0,'dBm');
   const sc=successPct();
   $('sRssi').textContent=p.lora_rssi_dbm==null?nf('lora_rssi_dbm','Not in telemetry'):`${linkQuality(p.lora_rssi_dbm)} · ${sc==null?'--':fx(sc,1)+' %'} packets`;
+  /* PIR motion tile */
+  const mot=p.motion;
+  {const el=$('tPir');el.textContent=mot===1||mot===true?'DETECT':mot===0||mot===false?'CLEAR':'--';el.classList.toggle('none',mot==null);}
+  $('sPir').textContent=p.event_count!=null?`${p.event_count} events logged`:(mot!=null?'HC-SR501 PIR':'Not in telemetry');
+  /* Light tile */
+  setVal('tLight',p.light_lux,0,'lux');
+  $('sLight').textContent=p.light_lux!=null?(p.light_lux>500?'Bright':p.light_lux>50?'Moderate':p.light_lux>10?'Dim':'Dark')+' · LDR':'Not in telemetry';
+  /* Orientation tile */
+  const pitch=p.pitch_deg,roll=p.roll_deg;
+  if(pitch!=null||roll!=null){setVal('tOrient',pitch,1,'°');$('sOrient').textContent=`Pitch ${fx(pitch,1)}° · Roll ${fx(roll,1)}° · MPU-6050`;}
+  else{$('tOrient').textContent='--';$('tOrient').classList.add('none');$('sOrient').textContent='Not in telemetry';}
+
   tileState('tileSolar',['solar_voltage_v','solar_current_ma'],st);
   tileState('tileBat',['battery_voltage_v','battery_current_ma'],st);
   tileState('tilePem',['pem_voltage_v','pem_current_ma'],st);
   tileState('tileLoad',['load_voltage_v','load_current_ma'],st);
   tileState('tileTemp',['temperature_c'],st);
   tileState('tileRadio',['lora_rssi_dbm','packet_success_pct'],st);
+  /* New tile states — motion uses a simple ok/none since it's boolean */
+  {const pirChip=$('tilePir').querySelector('.chip');
+   if(mot==null){pirChip.className='chip none';pirChip.textContent='No data';}
+   else if(mot===1||mot===true){pirChip.className='chip warn';pirChip.textContent='Detected';}
+   else{pirChip.className='chip ok';pirChip.textContent='Clear';}}
+  tileState('tileLight',['light_lux'],st);
+  tileState('tileOrient',['pitch_deg','roll_deg'],st);
   spark('kSolar','_solarP','--solar');spark('kBat','battery_voltage_v','--bat');spark('kPem','_pemP','--pem');
   spark('kLoad','_loadP','--load');spark('kTemp','temperature_c','--temp');spark('kRssi','lora_rssi_dbm','--ok');
+  spark('kPir','motion','--pir');spark('kLight','light_lux','--ldr');spark('kOrient','pitch_deg','--imu');
 }
 
 /* ---------- canvas helpers ---------- */
@@ -667,7 +709,9 @@ const CHARTS=[
   {id:'pPower',unit:'mW',d:0,series:[['Solar','_solarP','--solar'],['PEM','_pemP','--pem'],['Load','_loadP','--load']],zero:true},
   {id:'pVolt',unit:'V',d:2,series:[['Solar','solar_voltage_v','--solar'],['Battery','battery_voltage_v','--bat'],['Load bus','load_voltage_v','--load'],['PEM','pem_voltage_v','--pem']],thr:[[3.5,'--warn'],[3.3,'--bad']],zero:true},
   {id:'pTemp',unit:'°C',d:1,fill:true,series:[['Board','temperature_c','--temp']],thr:[[40,'--warn'],[45,'--bad']]},
-  {id:'pRssi',unit:'dBm',d:0,fill:true,series:[['RSSI','lora_rssi_dbm','--pem']],thr:[[-105,'--warn'],[-115,'--bad']]}
+  {id:'pRssi',unit:'dBm',d:0,fill:true,series:[['RSSI','lora_rssi_dbm','--pem']],thr:[[-105,'--warn'],[-115,'--bad']]},
+  {id:'pMotion',unit:'',d:0,series:[['Motion','motion','--pir'],['Events','event_count','--ldr']],zero:true},
+  {id:'pEnv',unit:'',d:0,series:[['Light','light_lux','--ldr'],['Pitch','pitch_deg','--imu']]}
 ];
 function niceTicks(lo,hi,n){const span=hi-lo,step0=span/n,mag=Math.pow(10,Math.floor(Math.log10(step0))),err=step0/mag,step=(err>=7.5?10:err>=3.5?5:err>=1.5?2:1)*mag;const out=[];for(let v=Math.ceil(lo/step)*step;v<=hi+1e-9;v+=step)out.push(+v.toFixed(10));return out;}
 function median(a){if(!a.length)return 1000;const s=a.slice().sort((x,y)=>x-y);return s[s.length>>1];}
@@ -876,7 +920,7 @@ function renderFlow(){
 }
 
 /* ---------- limits table / link chain / events / inspector ---------- */
-const COV=['solar_voltage_v','solar_current_ma','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','load_voltage_v','load_current_ma','temperature_c','lora_rssi_dbm','packet_success_pct'];
+const COV=['motion','event_count','light_lux','pitch_deg','roll_deg','solar_voltage_v','solar_current_ma','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','load_voltage_v','load_current_ma','temperature_c','lora_rssi_dbm','packet_success_pct'];
 function limText(D){const w=D.warn||{},c=D.crit||{};const part=(o)=>[o.lo!=null?'<'+o.lo:null,o.hi!=null?'>'+o.hi:null].filter(Boolean).join(' ');const a=part(w),b=part(c);return a||b?`${a||'—'} / ${b||'—'}`:'—';}
 function renderCoverage(){
   const p=S.last||{_failed:[]}, st=channelStates(), body=$('covBody'), stale=isStale();
@@ -931,10 +975,10 @@ function renderEvents(){
 function renderInspector(){if(S.lastRaw)$('rawPacket').textContent=JSON.stringify(S.lastRaw,null,1);}
 function render(){renderStatus();renderHealth();renderTiles();renderOrbit();renderFlow();CHARTS.forEach(drawChart);renderCoverage();renderHealthPanel();renderInspector();}
 
-/* ---------- demo generator: Multisim model through a simulated orbit, with fault injection ---------- */
+/* ---------- demo generator: Multisim model through a simulated orbit, with PIR motion simulation ---------- */
 const rnd=()=>Math.random()-.5, r2=(v,d)=>+v.toFixed(d);
 function demoPacket(){
-  const D=S.demo,F2=D.f; D.min=(D.min+1)%ORBIT; const ang=D.min/ORBIT*360;
+  const D=S.demo; D.min=(D.min+1)%ORBIT; const ang=D.min/ORBIT*360;
   const w=((ang%360)+360)%360, fromShadow=Math.min(Math.abs(w),Math.abs(360-w));
   const s=Math.max(0,Math.min(1,(fromShadow-ECL_HALF)/6+.5));
   if(Math.random()<.02)D.id++;
@@ -942,6 +986,10 @@ function demoPacket(){
   if(s<.5)D.drift=Math.min(.12,D.drift+.0022);else D.drift=Math.max(0,D.drift-.004);
   D.warm+=(s-D.warm)*.09;
   const batI=81.5-76.3*s+rnd()*.8;
+  /* Simulate PIR triggers: ~8% chance of motion starting, clears after 3-5 s */
+  if(D.pirCool>0){D.pirCool--;D.pirOn=false;}
+  else if(!D.pirOn&&Math.random()<.08){D.pirOn=true;D.events++;D.pirCool=3+Math.floor(Math.random()*3);}
+  else if(D.pirOn&&D.pirCool<=0){D.pirOn=false;}
   return{
     device_id:'ku-siraj-1-sim',packet_id:D.id,timestamp:new Date().toISOString(),telemetry_source:'Browser simulation · Multisim model',
     operating_mode:s>=.5?'SUNLIGHT':'ECLIPSE',orbit_phase_deg:r2(ang,1),
@@ -950,6 +998,9 @@ function demoPacket(){
     pem_voltage_v:r2(.6+rnd()*.01,3),pem_current_ma:r2(75+rnd()*2,1),
     load_voltage_v:r2(3.41+.11*s+rnd()*.006,3),load_current_ma:r2(94.8+2.8*s+rnd()*.6,1),
     temperature_c:r2(17+13*D.warm+rnd()*.3,1),lora_rssi_dbm:Math.round(-86+8*Math.sin(D.id/11)+rnd()*4),
+    motion:D.pirOn?1:0,event_count:D.events,
+    light_lux:Math.round(s>.02?800*s+rnd()*40:2+rnd()*3),
+    pitch_deg:r2(2.5*Math.sin(D.id/37)+rnd()*.4,1),roll_deg:r2(-1.8*Math.cos(D.id/29)+rnd()*.3,1),
     simulated:true};
 }
 function demoStep(){const pk=demoPacket();ingest(pk,'demo');}
