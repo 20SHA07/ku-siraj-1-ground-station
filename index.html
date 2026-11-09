@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>KU-SIRAJ 1 Ground Station</title>
-<meta name="description" content="Live ground-station dashboard for KU-SIRAJ 1, Team KU-SHIHAB's motion and presence detection CubeSat demonstrator (SatForge UAE 2026).">
+<meta name="description" content="Live ground-station dashboard for KU-SIRAJ 1, Team KU-SHIHAB's autonomous operations predictor CubeSat demonstrator (SatForge UAE 2026).">
 <meta name="theme-color" content="#0a1120">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect x='1' y='1' width='32' height='32' rx='8' fill='%2314223b'/%3E%3Crect x='12' y='12' width='10' height='10' rx='1.5' fill='none' stroke='%23e5ecf8' stroke-width='1.6'/%3E%3Crect x='4' y='14.5' width='7' height='5' fill='%23f4b13e'/%3E%3Crect x='23' y='14.5' width='7' height='5' fill='%23f4b13e'/%3E%3Ccircle cx='17' cy='17' r='2' fill='%236ea9ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,7 +21,7 @@
   --bg:#0a1120; --panel:#0f1a2e; --panel-2:#14223b; --line:#203152; --line-soft:#182742;
   --fg:#e5ecf8; --muted:#8a9ab6; --faint:#5d6d8a;
   --solar:#f4b13e; --bat:#33c4ad; --pem:#6ea9ff; --temp:#ff8a7a; --load:#e5ecf8;
-  --pir:#e879f9; --ldr:#facc15; --imu:#38bdf8;
+  --pir:#e879f9; --ldr:#facc15; --imu:#38bdf8; --pred:#a78bfa;
   --ok:#4ccf8a; --warn:#f2a53a; --bad:#ff6b6b; --stale:#8a9ab6;
   --shade:rgba(110,169,255,.08); --umbra:rgba(2,6,14,.72); --earth:#1d3d6b; --space:#071022; --sunray:rgba(244,177,62,.16);
   --chip-sim:rgba(242,165,58,.14); --chip-ok:rgba(76,207,138,.14); --chip-bad:rgba(255,107,107,.14); --chip-mute:rgba(138,154,182,.12);
@@ -35,7 +35,7 @@
   --bg:#eef2f8; --panel:#ffffff; --panel-2:#f3f6fb; --line:#d3dcea; --line-soft:#e3e9f3;
   --fg:#111d33; --muted:#53627d; --faint:#8592a9;
   --solar:#b46a00; --bat:#0b8a77; --pem:#2a66cf; --temp:#c9473a; --load:#111d33;
-  --pir:#a21caf; --ldr:#a16207; --imu:#0369a1;
+  --pir:#a21caf; --ldr:#a16207; --imu:#0369a1; --pred:#6d28d9;
   --ok:#17834f; --warn:#a85f00; --bad:#c43535; --stale:#53627d;
   --shade:rgba(42,102,207,.07); --umbra:rgba(17,29,51,.22); --earth:#9cc0ea; --space:#e2e9f4; --sunray:rgba(180,106,0,.12);
   --chip-sim:rgba(168,95,0,.10); --chip-ok:rgba(23,131,79,.10); --chip-bad:rgba(196,53,53,.10); --chip-mute:rgba(83,98,125,.10);
@@ -45,7 +45,7 @@
   --bg:#eef2f8; --panel:#ffffff; --panel-2:#f3f6fb; --line:#d3dcea; --line-soft:#e3e9f3;
   --fg:#111d33; --muted:#53627d; --faint:#8592a9;
   --solar:#b46a00; --bat:#0b8a77; --pem:#2a66cf; --temp:#c9473a; --load:#111d33;
-  --pir:#a21caf; --ldr:#a16207; --imu:#0369a1;
+  --pir:#a21caf; --ldr:#a16207; --imu:#0369a1; --pred:#6d28d9;
   --ok:#17834f; --warn:#a85f00; --bad:#c43535; --stale:#53627d;
   --shade:rgba(42,102,207,.07); --umbra:rgba(17,29,51,.22); --earth:#9cc0ea; --space:#e2e9f4; --sunray:rgba(180,106,0,.12);
   --chip-sim:rgba(168,95,0,.10); --chip-ok:rgba(23,131,79,.10); --chip-bad:rgba(196,53,53,.10); --chip-mute:rgba(83,98,125,.10);
@@ -165,7 +165,12 @@ select,input[type=text]{background:var(--panel-2);border:1px solid var(--line);b
 .tile.stale .val{color:var(--stale);opacity:.7}
 .tile .sub{font-size:11.5px;color:var(--muted);min-height:1.4em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile canvas{width:100%;height:30px;display:block;margin-top:4px}
-.c-solar{background:var(--solar)} .c-bat{background:var(--bat)} .c-pem{background:var(--pem)} .c-temp{background:var(--temp)} .c-load{background:var(--load)} .c-pir{background:var(--pir)} .c-ldr{background:var(--ldr)} .c-imu{background:var(--imu)} .c-ok{background:var(--ok)} .c-bad{background:var(--bad)} .c-warn{background:var(--warn)}
+.c-solar{background:var(--solar)} .c-bat{background:var(--bat)} .c-pem{background:var(--pem)} .c-temp{background:var(--temp)} .c-load{background:var(--load)} .c-pir{background:var(--pir)} .c-ldr{background:var(--ldr)} .c-imu{background:var(--imu)} .c-pred{background:var(--pred)} .c-ok{background:var(--ok)} .c-bad{background:var(--bad)} .c-warn{background:var(--warn)}
+.polar-wrap{display:flex;flex-direction:column;align-items:center;gap:6px}
+.polar-wrap canvas{width:100%;max-width:260px;aspect-ratio:1;display:block}
+.polar-leg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--muted);justify-content:center}
+.polar-leg span{display:inline-flex;align-items:center;gap:5px}
+.polar-leg i{width:8px;height:8px;border-radius:50%}
 .chip{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:99px;padding:1px 8px;white-space:nowrap}
 .chip.ok{color:var(--ok);background:var(--chip-ok)}
 .chip.warn,.chip.sim{color:var(--warn);background:var(--chip-sim)}
@@ -242,7 +247,7 @@ footer a{color:var(--pem)}
 <header class="top"><div class="top-in">
   <div class="brand">
     <svg class="mark" viewBox="0 0 34 34" aria-hidden="true"><rect x="1" y="1" width="32" height="32" rx="8" fill="var(--panel-2)" stroke="var(--line)"/><rect x="12" y="12" width="10" height="10" rx="1.5" fill="none" stroke="var(--fg)" stroke-width="1.6"/><rect x="4" y="14.5" width="7" height="5" fill="var(--solar)"/><rect x="23" y="14.5" width="7" height="5" fill="var(--solar)"/><circle cx="17" cy="17" r="2" fill="var(--pem)"/></svg>
-    <div><h1>KU-SIRAJ 1</h1><p>Team KU-SHIHAB · Motion &amp; presence detection demonstrator · Ground station</p></div>
+    <div><h1>KU-SIRAJ 1</h1><p>Team KU-SHIHAB · Autonomous operations predictor · Ground station</p></div>
   </div>
   <div class="status" aria-live="polite">
     <span class="pill sim" id="dataPill"><i></i><span id="dataText">Simulated data</span></span>
@@ -344,6 +349,18 @@ footer a{color:var(--pem)}
     <div class="tile" id="tilePir"><div class="tile-h"><div class="lab"><i class="c-pir"></i>PIR motion</div><span class="chip none">--</span></div><div class="val" id="tPir">--</div><div class="sub" id="sPir">--</div><canvas id="kPir"></canvas></div>
     <div class="tile" id="tileLight"><div class="tile-h"><div class="lab"><i class="c-ldr"></i>Light level</div><span class="chip none">--</span></div><div class="val" id="tLight">--<small>lux</small></div><div class="sub" id="sLight">--</div><canvas id="kLight"></canvas></div>
     <div class="tile" id="tileOrient"><div class="tile-h"><div class="lab"><i class="c-imu"></i>Orientation</div><span class="chip none">--</span></div><div class="val" id="tOrient">--<small>°</small></div><div class="sub" id="sOrient">--</div><canvas id="kOrient"></canvas></div>
+    <div class="tile" id="tilePredTime"><div class="tile-h"><div class="lab"><i class="c-pred"></i>Predicted op time</div><span class="chip none">--</span></div><div class="val" id="tPredTime">--<small>min</small></div><div class="sub" id="sPredTime">--</div><canvas id="kPredTime"></canvas></div>
+    <div class="tile" id="tileSafeWin"><div class="tile-h"><div class="lab"><i class="c-pred"></i>Safe window</div><span class="chip none">--</span></div><div class="val" id="tSafeWin">--</div><div class="sub" id="sSafeWin">--</div><canvas id="kSafeWin"></canvas></div>
+  </section>
+
+  <section class="hero" style="margin-top:2px">
+    <article class="card" aria-labelledby="polarH">
+      <div class="card-h"><h2 id="polarH">360° Presence map</h2><small>Gyro angle + PIR → polar occupancy</small></div>
+      <div class="polar-wrap">
+        <canvas id="polarMap" width="260" height="260"></canvas>
+        <div class="polar-leg"><span><i style="background:var(--pir)"></i>Detection</span><span><i style="background:var(--pred);opacity:.3"></i>Clear</span><span><i style="background:var(--imu)"></i>Current heading</span></div>
+      </div>
+    </article>
   </section>
 
   <section aria-label="Trends" style="display:flex;flex-direction:column;gap:10px">
@@ -374,6 +391,9 @@ footer a{color:var(--pem)}
       <article class="card"><div class="card-h"><h2>Light &amp; orientation</h2><small>LDR lux + MPU-6050 pitch · °</small></div>
         <div class="legend"><span><i class="c-ldr"></i>Light (lux)</span><span><i class="c-imu"></i>Pitch</span></div>
         <div class="plot" id="pEnv"><canvas></canvas></div></article>
+      <article class="card"><div class="card-h"><h2>Autonomous predictor</h2><small>Predicted operating time + safe window</small></div>
+        <div class="legend"><span><i class="c-pred"></i>Op time (min)</span><span><i class="shade"></i>Eclipse</span></div>
+        <div class="plot" id="pPred"><canvas></canvas></div></article>
     </div>
   </section>
 
@@ -415,6 +435,7 @@ footer a{color:var(--pem)}
  "operating_mode":"SUNLIGHT",
  "solar_voltage_v":4.9,"solar_current_ma":55.2,
  "battery_voltage_v":3.84,"temperature_c":26.1,
+ "predicted_op_min":72,"safe_window":2,
  "motion":1,"event_count":42,
  "light_lux":620,"pitch_deg":1.3,"roll_deg":-0.8,
  "lora_rssi_dbm":-85,"simulated":false}
@@ -423,8 +444,12 @@ device_id, packet_id required. timestamp: ISO 8601 UTC,
 set by the publisher on receipt if the ESP32 has no clock.
 Channel not wired  -> leave the field out.
 Sensor read failed -> send the field as null.
-Primary: motion (1=detect, 0=clear), event_count,
-light_lux (LDR), pitch_deg, roll_deg (MPU-6050).
+Primary (predictor): predicted_op_min (minutes of safe
+operating time remaining, ML regression output),
+safe_window (2=safe, 1=caution, 0=unsafe).
+Primary (presence): motion (1=detect, 0=clear),
+event_count, pitch_deg, roll_deg (MPU-6050 heading
+for 360° presence mapping), light_lux (LDR).
 Secondary: pem_voltage_v, pem_current_ma.
 Optional: battery_current_ma (+ = discharging),
 load_voltage_v, load_current_ma, *_power_mw,
@@ -433,7 +458,7 @@ Power is V × mA when *_power_mw is omitted.</pre></div>
     </div>
   </details>
 
-  <footer><strong>KU-SIRAJ 1 · Team KU-SHIHAB · SatForge UAE 2026.</strong> Read-only ground station for the KU-SIRAJ 1 motion and presence detection demonstrator. Primary payload: HC-SR501 PIR motion/presence sensor with LDR light, DS18B20 temperature and MPU-6050 orientation as environmental context. Secondary mission: PEM hydrogen fuel cell power experiment. This is a bench/ground demonstration, not flight hardware. PEM figures are provisional until bench-verified. Simulated and replayed values are labelled and are not measurements. The demo uses the team's Multisim 14.1 power-path model with simulated PIR triggers. Live data travels over a public MQTT test broker; the page validates every packet. Limits are provisional: battery warn 3.5 V / critical 3.3 V, temperature warn 40 °C / critical 45 °C, RSSI warn −105 / critical −115 dBm, packet success warn 95 % / critical 80 %, stale after 5 s. Times are Gulf Standard Time (UTC+4). Setup, data contract and test plan: <a href="https://github.com/20SHA07/ku-siraj-1-ground-station">github.com/20SHA07/ku-siraj-1-ground-station</a>.</footer>
+  <footer><strong>KU-SIRAJ 1 · Team KU-SHIHAB · SatForge UAE 2026.</strong> Read-only ground station for the KU-SIRAJ 1 autonomous operations predictor. Primary mission: onboard ML model predicts remaining operating time and classifies safe/caution/unsafe operating windows from power, thermal and illumination telemetry; 360° presence-mapping demo combines MPU-6050 gyro heading with HC-SR501 PIR detections to build a polar occupancy map. Secondary mission: PEM hydrogen fuel cell power experiment (~45 mW, ~14% of load). This is a bench/ground demonstration, not flight hardware. PEM figures are provisional until bench-verified. Simulated and replayed values are labelled and are not measurements. The demo uses the team's Multisim 14.1 power-path model with simulated PIR triggers and synthetic prediction outputs. Live data travels over a public MQTT test broker; the page validates every packet. Limits are provisional: predicted op time warn 15 min / critical 5 min, battery warn 3.5 V / critical 3.3 V, temperature warn 40 °C / critical 45 °C, RSSI warn −105 / critical −115 dBm, packet success warn 95 % / critical 80 %, stale after 5 s. Times are Gulf Standard Time (UTC+4). Setup, data contract and test plan: <a href="https://github.com/20SHA07/ku-siraj-1-ground-station">github.com/20SHA07/ku-siraj-1-ground-station</a>.</footer>
 </main>
 
 <script>
@@ -458,9 +483,11 @@ const DICT={
   event_count:{label:'Event count',unit:'',d:0,range:[0,99999]},
   light_lux:{label:'Light level',unit:'lux',d:0,range:[0,65535]},
   pitch_deg:{label:'Pitch',unit:'°',d:1,range:[-180,180]},
-  roll_deg:{label:'Roll',unit:'°',d:1,range:[-180,180]}
+  roll_deg:{label:'Roll',unit:'°',d:1,range:[-180,180]},
+  predicted_op_min:{label:'Predicted op time',unit:'min',d:0,range:[0,200],warn:{lo:15},crit:{lo:5}},
+  safe_window:{label:'Safe window',unit:'',d:0,range:[0,2]}
 };
-const NUM=['solar_voltage_v','solar_current_ma','solar_power_mw','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','pem_power_mw','load_voltage_v','load_current_ma','load_power_mw','temperature_c','lora_rssi_dbm','wifi_rssi_dbm','packet_success_pct','orbit_phase_deg','motion','event_count','light_lux','pitch_deg','roll_deg'];
+const NUM=['solar_voltage_v','solar_current_ma','solar_power_mw','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','pem_power_mw','load_voltage_v','load_current_ma','load_power_mw','temperature_c','lora_rssi_dbm','wifi_rssi_dbm','packet_success_pct','orbit_phase_deg','motion','event_count','light_lux','pitch_deg','roll_deg','predicted_op_min','safe_window'];
 const COLS=['timestamp','device_id','packet_id','telemetry_source','operating_mode'].concat(NUM,['simulated']);
 const ORBIT=94, ECL=35, ECL_HALF=ECL/ORBIT*180, STALE_S=5, FALLBACK_S=8, FLAT_N=30, MAXS=2400;
 const SAMPLE_URL='examples/sample-orbit.jsonl';
@@ -479,7 +506,7 @@ const S={mode:'live',samples:[],last:null,lastRaw:null,lastAt:0,ids:{last:null,r
   marks:[],range:300,rec:false,csvRows:[],csvText:'',branchWarned:false,lastEcl:null,fallback:false,lastLiveTs:null,
   mqtt:{client:null,state:'idle',pub:null,pubAt:0,fallbackTimer:null},
   local:{ws:null,open:false,tried:false,serial:null,port:null,retry:null},
-  demo:{timer:null,paused:false,min:88,id:0,drift:0,warm:.9,events:0,pirOn:false,pirCool:0},
+  demo:{timer:null,paused:false,min:88,id:0,drift:0,warm:.9,events:0,pirOn:false,pirCool:0},polar:[],
   replay:{rows:[],i:0,timer:null,playing:false,name:''}};
 let wasStale=false;
 
@@ -522,6 +549,7 @@ function ingest(raw,origin,opt){
   for(const k of NUM)if(p[k]!=null)S.seen[k]=p._at;
   S.samples.push(p); if(S.samples.length>MAXS)S.samples.shift();
   S.last=p; S.lastRaw=raw; S.lastAt=p._at;
+  updatePolar(p);
   if(!opt.quiet)checkAlerts(p); else S.lastEcl=isEcl(p);
   if(S.rec)S.csvRows.push(COLS.map(k=>csvq(raw[k]!==undefined?raw[k]:p[k])).join(','));
   if(!opt.quiet)render();
@@ -672,6 +700,15 @@ function renderTiles(){
   const pitch=p.pitch_deg,roll=p.roll_deg;
   if(pitch!=null||roll!=null){setVal('tOrient',pitch,1,'°');$('sOrient').textContent=`Pitch ${fx(pitch,1)}° · Roll ${fx(roll,1)}° · MPU-6050`;}
   else{$('tOrient').textContent='--';$('tOrient').classList.add('none');$('sOrient').textContent='Not in telemetry';}
+  /* Predicted operating time tile */
+  const predT=p.predicted_op_min;
+  setVal('tPredTime',predT,0,'min');
+  $('sPredTime').textContent=predT!=null?(predT>60?'Comfortable margin':predT>15?'Within safe range':'Low — plan shutdown')+ ' · ML model':'Not in telemetry';
+  /* Safe window tile */
+  const sw=p.safe_window;
+  {const el=$('tSafeWin');el.textContent=sw===2?'SAFE':sw===1?'CAUTION':sw===0?'UNSAFE':'--';el.classList.toggle('none',sw==null);
+   if(sw===2)el.style.color='var(--ok)';else if(sw===1)el.style.color='var(--warn)';else if(sw===0)el.style.color='var(--bad)';else el.style.color='';}
+  $('sSafeWin').textContent=sw!=null?'Onboard classifier · power+thermal+light':'Not in telemetry';
 
   tileState('tileSolar',['solar_voltage_v','solar_current_ma'],st);
   tileState('tileBat',['battery_voltage_v','battery_current_ma'],st);
@@ -686,9 +723,17 @@ function renderTiles(){
    else{pirChip.className='chip ok';pirChip.textContent='Clear';}}
   tileState('tileLight',['light_lux'],st);
   tileState('tileOrient',['pitch_deg','roll_deg'],st);
+  tileState('tilePredTime',['predicted_op_min'],st);
+  /* Safe window tile state — custom: SAFE/CAUTION/UNSAFE */
+  {const swChip=$('tileSafeWin').querySelector('.chip');
+   if(sw==null){swChip.className='chip none';swChip.textContent='No data';}
+   else if(sw===2){swChip.className='chip ok';swChip.textContent='Safe';}
+   else if(sw===1){swChip.className='chip warn';swChip.textContent='Caution';}
+   else{swChip.className='chip bad';swChip.textContent='Unsafe';}}
   spark('kSolar','_solarP','--solar');spark('kBat','battery_voltage_v','--bat');spark('kPem','_pemP','--pem');
   spark('kLoad','_loadP','--load');spark('kTemp','temperature_c','--temp');spark('kRssi','lora_rssi_dbm','--ok');
   spark('kPir','motion','--pir');spark('kLight','light_lux','--ldr');spark('kOrient','pitch_deg','--imu');
+  spark('kPredTime','predicted_op_min','--pred');spark('kSafeWin','safe_window','--pred');
 }
 
 /* ---------- canvas helpers ---------- */
@@ -711,7 +756,8 @@ const CHARTS=[
   {id:'pTemp',unit:'°C',d:1,fill:true,series:[['Board','temperature_c','--temp']],thr:[[40,'--warn'],[45,'--bad']]},
   {id:'pRssi',unit:'dBm',d:0,fill:true,series:[['RSSI','lora_rssi_dbm','--pem']],thr:[[-105,'--warn'],[-115,'--bad']]},
   {id:'pMotion',unit:'',d:0,series:[['Motion','motion','--pir'],['Events','event_count','--ldr']],zero:true},
-  {id:'pEnv',unit:'',d:0,series:[['Light','light_lux','--ldr'],['Pitch','pitch_deg','--imu']]}
+  {id:'pEnv',unit:'',d:0,series:[['Light','light_lux','--ldr'],['Pitch','pitch_deg','--imu']]},
+  {id:'pPred',unit:'min',d:0,fill:true,series:[['Op time','predicted_op_min','--pred']],thr:[[15,'--warn'],[5,'--bad']],zero:true}
 ];
 function niceTicks(lo,hi,n){const span=hi-lo,step0=span/n,mag=Math.pow(10,Math.floor(Math.log10(step0))),err=step0/mag,step=(err>=7.5?10:err>=3.5?5:err>=1.5?2:1)*mag;const out=[];for(let v=Math.ceil(lo/step)*step;v<=hi+1e-9;v+=step)out.push(+v.toFixed(10));return out;}
 function median(a){if(!a.length)return 1000;const s=a.slice().sort((x,y)=>x-y);return s[s.length>>1];}
@@ -920,7 +966,7 @@ function renderFlow(){
 }
 
 /* ---------- limits table / link chain / events / inspector ---------- */
-const COV=['motion','event_count','light_lux','pitch_deg','roll_deg','solar_voltage_v','solar_current_ma','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','load_voltage_v','load_current_ma','temperature_c','lora_rssi_dbm','packet_success_pct'];
+const COV=['predicted_op_min','safe_window','motion','event_count','light_lux','pitch_deg','roll_deg','solar_voltage_v','solar_current_ma','battery_voltage_v','battery_current_ma','pem_voltage_v','pem_current_ma','load_voltage_v','load_current_ma','temperature_c','lora_rssi_dbm','packet_success_pct'];
 function limText(D){const w=D.warn||{},c=D.crit||{};const part=(o)=>[o.lo!=null?'<'+o.lo:null,o.hi!=null?'>'+o.hi:null].filter(Boolean).join(' ');const a=part(w),b=part(c);return a||b?`${a||'—'} / ${b||'—'}`:'—';}
 function renderCoverage(){
   const p=S.last||{_failed:[]}, st=channelStates(), body=$('covBody'), stale=isStale();
@@ -973,7 +1019,48 @@ function renderEvents(){
     const m=document.createElement('p');m.textContent=e.msg;li.append(t,c,m);ul.append(li);});
 }
 function renderInspector(){if(S.lastRaw)$('rawPacket').textContent=JSON.stringify(S.lastRaw,null,1);}
-function render(){renderStatus();renderHealth();renderTiles();renderOrbit();renderFlow();CHARTS.forEach(drawChart);renderCoverage();renderHealthPanel();renderInspector();}
+/* ---------- 360° polar presence map ---------- */
+function updatePolar(p){
+  if(!p||p.pitch_deg==null)return;
+  const heading=((p.pitch_deg%360)+360)%360;
+  const bucket=Math.floor(heading/10)%36;
+  if(p.motion===1||p.motion===true){if(!S.polar[bucket])S.polar[bucket]={det:0,clr:0};S.polar[bucket].det++;}
+  else if(p.motion===0||p.motion===false){if(!S.polar[bucket])S.polar[bucket]={det:0,clr:0};S.polar[bucket].clr++;}
+}
+function renderPolar(){
+  const c=$('polarMap'); if(!c)return;
+  const dpr=window.devicePixelRatio||1, sz=260;
+  if(c.width!==sz*dpr||c.height!==sz*dpr){c.width=sz*dpr;c.height=sz*dpr;c.style.width=sz+'px';c.style.height=sz+'px';}
+  const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,sz,sz);
+  const cx=sz/2,cy=sz/2,R=105;
+  /* grid rings */
+  x.strokeStyle=css('--line-soft');x.lineWidth=1;
+  [.33,.66,1].forEach(f=>{x.beginPath();x.arc(cx,cy,R*f,0,Math.PI*2);x.stroke();});
+  /* angle labels */
+  x.fillStyle=css('--muted');x.font='10px '+(css('--f-mono')||'monospace');x.textAlign='center';x.textBaseline='middle';
+  ['0°','90°','180°','270°'].forEach((l,i)=>{const a=(-90+i*90)*Math.PI/180;x.fillText(l,cx+Math.cos(a)*(R+14),cy+Math.sin(a)*(R+14));});
+  /* presence sectors */
+  const maxD=Math.max(1,...S.polar.filter(Boolean).map(b=>b.det+b.clr));
+  for(let i=0;i<36;i++){
+    const b=S.polar[i]; if(!b)continue;
+    const a0=(i*10-95)*Math.PI/180, a1=((i+1)*10-95)*Math.PI/180;
+    const intensity=Math.min(1,(b.det+b.clr)/maxD);
+    const r=R*.3+R*.7*intensity;
+    if(b.det>0){x.fillStyle=css('--pir')+'90';x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,r,a0,a1);x.closePath();x.fill();}
+    else{x.fillStyle=css('--pred')+'30';x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,r*.6,a0,a1);x.closePath();x.fill();}
+  }
+  /* current heading pointer */
+  const p=S.last;
+  if(p&&p.pitch_deg!=null){
+    const ha=((p.pitch_deg-90)*Math.PI/180);
+    x.strokeStyle=css('--imu');x.lineWidth=2.5;x.lineCap='round';
+    x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+Math.cos(ha)*R*.85,cy+Math.sin(ha)*R*.85);x.stroke();
+    x.fillStyle=css('--imu');x.beginPath();x.arc(cx+Math.cos(ha)*R*.85,cy+Math.sin(ha)*R*.85,4,0,Math.PI*2);x.fill();
+  }
+  /* centre dot */
+  x.fillStyle=css('--fg');x.beginPath();x.arc(cx,cy,3,0,Math.PI*2);x.fill();
+}
+function render(){renderStatus();renderHealth();renderTiles();renderOrbit();renderFlow();CHARTS.forEach(drawChart);renderCoverage();renderHealthPanel();renderInspector();renderPolar();}
 
 /* ---------- demo generator: Multisim model through a simulated orbit, with PIR motion simulation ---------- */
 const rnd=()=>Math.random()-.5, r2=(v,d)=>+v.toFixed(d);
@@ -1001,6 +1088,8 @@ function demoPacket(){
     motion:D.pirOn?1:0,event_count:D.events,
     light_lux:Math.round(s>.02?800*s+rnd()*40:2+rnd()*3),
     pitch_deg:r2(2.5*Math.sin(D.id/37)+rnd()*.4,1),roll_deg:r2(-1.8*Math.cos(D.id/29)+rnd()*.3,1),
+    predicted_op_min:Math.round(Math.max(0,94*s+28*(3.86-D.drift-3.3)/(4.2-3.3)*s+rnd()*3)),
+    safe_window:s>.5&&D.drift<.06?2:s>.15||D.drift<.1?1:0,
     simulated:true};
 }
 function demoStep(){const pk=demoPacket();ingest(pk,'demo');}
@@ -1132,7 +1221,7 @@ $('localConnect').addEventListener('click',()=>{if($('localConnect').textContent
 $('bridgeUrl').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();failLogged=false;localConnect();}});
 
 /* ---------- mode switching ---------- */
-function resetData(){wasStale=false;S.samples=[];S.last=null;S.lastRaw=null;S.lastAt=0;S.ids={last:null,recv:0,lost:0};S.seen={};S.alertState={};S.branchWarned=false;S.lastEcl=null;S.marks=[];$('rawPacket').textContent='Waiting for a packet…';}
+function resetData(){wasStale=false;S.samples=[];S.last=null;S.lastRaw=null;S.lastAt=0;S.ids={last:null,recv:0,lost:0};S.seen={};S.alertState={};S.branchWarned=false;S.lastEcl=null;S.marks=[];S.polar=[];$('rawPacket').textContent='Waiting for a packet…';}
 function setMode(m,opt){
   opt=opt||{};
   if(S.mode===m&&!opt.force)return;
@@ -1176,13 +1265,13 @@ setInterval(()=>{
   if(S.rec)$('recInfo').textContent=`${S.csvRows.length-1} rows`;
   const st=isStale();
   if(st!==wasStale){wasStale=st;if(st){log('bad',`No packet for ${STALE_S} s. Values shown are the last received, not live.`);mark('Link lost','bad');}else if(S.lastAt)log('ok','Telemetry resumed.');}
-  renderStatus();renderHealth();renderHealthPanel();renderTiles();CHARTS.forEach(drawChart);
+  renderStatus();renderHealth();renderHealthPanel();renderTiles();CHARTS.forEach(drawChart);renderPolar();
   document.querySelectorAll('#covBody tr').forEach((tr,i)=>{const td=tr.lastElementChild;const k=COV[i];if(td&&k)td.textContent=S.seen[k]?ago(Date.now()-S.seen[k]):'—';});
 },1000);
 let rz=null;
 const ro=new ResizeObserver(()=>{clearTimeout(rz);rz=setTimeout(()=>{if(Math.abs($('flowBox').clientWidth-F.W)>4)buildFlow();CHARTS.forEach(drawChart);renderTiles();},80);});
 ro.observe($('flowBox'));CHARTS.forEach(c=>ro.observe($(c.id)));
-const redraw=()=>{CHARTS.forEach(drawChart);renderTiles();};
+const redraw=()=>{CHARTS.forEach(drawChart);renderTiles();renderPolar();};
 try{window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',redraw);}catch(e){}
 
 /* ---------- start: live first, simulation if nothing arrives ---------- */
