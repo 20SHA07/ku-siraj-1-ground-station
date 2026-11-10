@@ -304,6 +304,32 @@ footer{font-size:11.5px;color:var(--muted);line-height:1.6;max-width:66rem;borde
 footer strong{color:var(--fg);font-weight:600}
 footer a{color:var(--pem)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ===== Ultrawide layout: everything visible at once (auto at >=2:1 and >=1900px, toggle with the Wide button or W key) ===== */
+html[data-wide="1"] .top-in,html[data-wide="1"] .wrap{max-width:none}
+html[data-wide="1"] .wrap{display:grid;gap:12px;padding-inline:20px;grid-template-columns:minmax(0,1.05fr) minmax(0,2.3fr) minmax(0,1.05fr);
+ grid-template-areas:"health health health" "controls controls controls" "heroA tiles lowerS" "heroA trends lowerS" "heroB trends lowerS" "insp insp insp" "foot foot foot";align-items:start}
+html[data-wide="1"] #health{grid-area:health}
+html[data-wide="1"] .controls{grid-area:controls}
+html[data-wide="1"] #heroA{grid-area:heroA;grid-template-columns:1fr}
+html[data-wide="1"] #heroB{grid-area:heroB;grid-template-columns:1fr;margin-top:0!important}
+html[data-wide="1"] #tilesS{grid-area:tiles;grid-template-columns:repeat(4,minmax(0,1fr))}
+html[data-wide="1"] #trendsS{grid-area:trends}
+html[data-wide="1"] #trendsS .charts{grid-template-columns:repeat(2,minmax(0,1fr))}
+html[data-wide="1"] #lowerS{grid-area:lowerS;grid-template-columns:1fr}
+html[data-wide="1"] #inspect{grid-area:insp}
+html[data-wide="1"] footer{grid-area:foot;max-width:none}
+html[data-wide="1"] #wideBtn{background:var(--panel-2)}
+html[data-wide="1"] #tilesS{grid-template-columns:repeat(6,minmax(0,1fr))}
+html[data-wide="1"] #trendsS .charts{grid-template-columns:repeat(4,minmax(0,1fr))}
+html[data-wide="1"] .plot{height:150px}
+html[data-wide="1"] #orbitSvg,html[data-wide="1"] .polar-wrap canvas{max-width:250px}
+html[data-wide="1"] .tile .val{font-size:26px}
+html[data-wide="1"] .controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding-block:8px}
+html[data-wide="1"] .health{padding-block:8px}
+html[data-wide="1"] #orbitSvg,html[data-wide="1"] .polar-wrap canvas{max-width:200px}
+html[data-wide="1"] #events{max-height:150px;overflow:auto}
+@media (max-height:1200px){html[data-wide="1"] .plot{height:104px}html[data-wide="1"] #orbitSvg,html[data-wide="1"] .polar-wrap canvas{max-width:180px}html[data-wide="1"] .wrap{gap:8px;padding-block:8px}}
 </style>
 </head>
 <body>
@@ -316,6 +342,7 @@ footer a{color:var(--pem)}
     <span class="pill sim" id="dataPill"><i></i><span id="dataText">Simulated data</span></span>
     <span class="pill mute" id="linkPill"><i></i><span id="linkText">Connecting</span></span>
     <span class="pill mute" id="agePill"><span id="ageText">No packet yet</span></span>
+    <button type="button" class="pill mute" id="wideBtn" title="Ultrawide layout (W)" aria-pressed="false" style="cursor:pointer;border:1px solid var(--line);font:inherit">Wide</button>
     <span class="clock" id="clock">--:--:-- GST</span>
   </div>
 </div></header>
@@ -383,7 +410,7 @@ footer a{color:var(--pem)}
 
   </section>
 
-  <section class="hero">
+  <section class="hero" id="heroA">
     <article class="card" aria-labelledby="orbitH">
       <div class="card-h"><h2 id="orbitH">Orbit &amp; mode</h2><small id="orbitNote">Where is it, and is it in sunlight?</small></div>
       <div class="orbit-wrap">
@@ -402,7 +429,7 @@ footer a{color:var(--pem)}
     </article>
   </section>
 
-  <section class="tiles" aria-label="Latest values">
+  <section class="tiles" id="tilesS" aria-label="Latest values">
     <div class="tile" id="tileSolar"><div class="tile-h"><div class="lab"><i class="c-solar"></i>Solar input</div><span class="chip none">--</span></div><div class="val" id="tSolar">--<small>mW</small></div><div class="sub" id="sSolar">--</div><canvas id="kSolar"></canvas></div>
     <div class="tile" id="tileBat"><div class="tile-h"><div class="lab"><i class="c-bat"></i>Battery</div><span class="chip none">--</span></div><div class="val" id="tBat">--<small>V</small></div><div class="sub" id="sBat">--</div><canvas id="kBat"></canvas></div>
     <div class="tile" id="tilePem"><div class="tile-h"><div class="lab"><i class="c-pem"></i>PEM fuel cell</div><span class="chip none">--</span></div><div class="val" id="tPem">--<small>mW</small></div><div class="sub" id="sPem">--</div><canvas id="kPem"></canvas></div>
@@ -416,7 +443,7 @@ footer a{color:var(--pem)}
     <div class="tile" id="tileSafeWin"><div class="tile-h"><div class="lab"><i class="c-pred"></i>Safe window</div><span class="chip none">--</span></div><div class="val" id="tSafeWin">--</div><div class="sub" id="sSafeWin">--</div><canvas id="kSafeWin"></canvas></div>
   </section>
 
-  <section class="hero" style="margin-top:2px">
+  <section class="hero" id="heroB" style="margin-top:2px">
     <article class="card" aria-labelledby="polarH">
       <div class="card-h"><h2 id="polarH">360° Presence map</h2><small>Gyro angle + PIR → polar occupancy</small></div>
       <div class="polar-wrap">
@@ -426,7 +453,7 @@ footer a{color:var(--pem)}
     </article>
   </section>
 
-  <section aria-label="Trends" style="display:flex;flex-direction:column;gap:10px">
+  <section id="trendsS" aria-label="Trends" style="display:flex;flex-direction:column;gap:10px">
     <div class="chart-bar"><h2>Trends</h2>
       <div class="seg sm" id="rangeSeg" role="group" aria-label="Time range">
         <button type="button" data-range="60" aria-pressed="false">1 min</button>
@@ -460,7 +487,7 @@ footer a{color:var(--pem)}
     </div>
   </section>
 
-  <section class="lower">
+  <section class="lower" id="lowerS">
     <article class="card"><div class="card-h"><h2>Channel limits</h2><small>Latest value against its limits</small></div>
       <div class="tablewrap"><table><thead><tr><th>Channel</th><th>Latest</th><th>State</th><th>Warn / critical</th><th>Seen</th></tr></thead><tbody id="covBody"></tbody></table></div>
       <div class="warnbox" id="branchWarn" hidden><strong>Check current sensing.</strong> <span id="branchText"></span></div>
@@ -1354,6 +1381,20 @@ buildOrbit(); buildFlow();
 const start=params.get('mode');
 if(start==='demo'||start==='replay'||start==='local'){S.mode='';setMode(start);}
 else{S.mode='';setMode('live');}
+})();
+
+/* Ultrawide toggle */
+(function(){
+  var root=document.documentElement,btn=document.getElementById('wideBtn'),pref=null;
+  try{pref=localStorage.getItem('ku-wide');}catch(e){}
+  function auto(){return innerWidth>=1900&&innerWidth/innerHeight>=1.9;}
+  function fit(){root.style.zoom='';if(root.getAttribute('data-wide')!=='1')return;var nz=Math.max(.72,Math.min(1,innerHeight/root.scrollHeight));root.style.zoom=nz.toFixed(3);window.dispatchEvent(new Event('resize'));}
+  function apply(){var on=pref==='1'?true:pref==='0'?false:auto();root.setAttribute('data-wide',on?'1':'0');if(btn)btn.setAttribute('aria-pressed',on?'true':'false');fit();window.dispatchEvent(new Event('resize'));}
+  function toggle(){var on=root.getAttribute('data-wide')==='1';pref=on?'0':'1';try{localStorage.setItem('ku-wide',pref);}catch(e){}apply();}
+  if(btn)btn.addEventListener('click',toggle);
+  addEventListener('keydown',function(e){if((e.key==='w'||e.key==='W')&&!/INPUT|SELECT|TEXTAREA/.test((e.target||{}).tagName||'')&&!e.ctrlKey&&!e.metaKey)toggle();});
+  var t;addEventListener('resize',function(){clearTimeout(t);t=setTimeout(function(){if(pref===null){var on=auto();if(root.getAttribute('data-wide')!==(on?'1':'0'))apply();}},150);});
+  apply();setTimeout(fit,800);setTimeout(fit,2500);
 })();
 </script>
 </body>
